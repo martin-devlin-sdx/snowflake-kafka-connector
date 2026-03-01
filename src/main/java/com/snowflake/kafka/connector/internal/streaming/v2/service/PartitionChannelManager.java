@@ -230,23 +230,19 @@ public class PartitionChannelManager {
 
     final StreamingClientProperties streamingClientProperties =
         StreamingClientProperties.from(taskConfig);
-    final ExecutorService ioExecutor = ThreadPools.getIoExecutor(connectorName);
 
     CompletableFuture<?>[] clientFutures =
         tableToPipeMapping.values().stream()
             .distinct()
             .map(
                 pipeName ->
-                    CompletableFuture.runAsync(
-                        () ->
-                            StreamingClientPools.getClient(
-                                connectorName,
-                                taskId,
-                                pipeName,
-                                taskConfig,
-                                streamingClientProperties,
-                                taskMetrics),
-                        ioExecutor))
+                    StreamingClientPools.getClientAsync(
+                        connectorName,
+                        taskId,
+                        pipeName,
+                        taskConfig,
+                        streamingClientProperties,
+                        taskMetrics))
             .toArray(CompletableFuture[]::new);
     CompletableFuture.allOf(clientFutures).join();
   }
