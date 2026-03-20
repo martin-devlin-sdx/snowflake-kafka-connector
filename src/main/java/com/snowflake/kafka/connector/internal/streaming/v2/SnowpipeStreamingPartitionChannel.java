@@ -24,6 +24,8 @@ import com.snowflake.kafka.connector.internal.streaming.channel.TopicPartitionCh
 import com.snowflake.kafka.connector.internal.streaming.telemetry.SnowflakeTelemetryChannelCreation;
 import com.snowflake.kafka.connector.internal.streaming.telemetry.SnowflakeTelemetryChannelStatus;
 import com.snowflake.kafka.connector.internal.streaming.v2.channel.PartitionOffsetTracker;
+import com.snowflake.kafka.connector.internal.streaming.v2.migration.Ssv1MigrationMode;
+import com.snowflake.kafka.connector.internal.streaming.v2.migration.Ssv1OffsetReader;
 import com.snowflake.kafka.connector.internal.telemetry.SnowflakeTelemetryService;
 import com.snowflake.kafka.connector.internal.validation.ColumnSchema;
 import com.snowflake.kafka.connector.internal.validation.RowValidator;
@@ -36,6 +38,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -83,6 +86,11 @@ public class SnowpipeStreamingPartitionChannel implements TopicPartitionChannel 
 
   private final TaskMetrics taskMetrics;
 
+  // SSv1 offset migration
+  private final Ssv1MigrationMode ssv1MigrationMode;
+  private final Ssv1OffsetReader ssv1OffsetReader;
+  private final String ssv1ChannelName;
+
   // Client-side validation fields
   private final boolean clientValidationEnabled;
   private final SnowflakeConnectionService conn;
@@ -108,7 +116,10 @@ public class SnowpipeStreamingPartitionChannel implements TopicPartitionChannel 
       TaskMetrics taskMetrics,
       boolean clientValidationEnabled,
       boolean shouldEvolveSchema,
-      SnowflakeConnectionService conn) {
+      SnowflakeConnectionService conn,
+      Ssv1MigrationMode ssv1MigrationMode,
+      Ssv1OffsetReader ssv1OffsetReader,
+      String ssv1ChannelName) {
     this.channelName = channelName;
     this.pipeName = pipeName;
     this.streamingClient = streamingClient;
@@ -125,6 +136,9 @@ public class SnowpipeStreamingPartitionChannel implements TopicPartitionChannel 
     this.shouldEvolveSchema = shouldEvolveSchema;
     this.conn = conn;
     this.tableName = tableName;
+    this.ssv1MigrationMode = ssv1MigrationMode;
+    this.ssv1OffsetReader = ssv1OffsetReader;
+    this.ssv1ChannelName = ssv1ChannelName;
 
     LOGGER.info(
         "Initializing SnowpipeStreamingPartitionChannel channel: {}, pipe: {}",
@@ -135,13 +149,46 @@ public class SnowpipeStreamingPartitionChannel implements TopicPartitionChannel 
         CompletableFuture.supplyAsync(
             () -> {
               OpenChannelResult openChannelResult = openChannelForTable(channelName);
-              final long lastCommittedOffsetToken =
+              final long ssv2Offset =
                   parseOffsetToken(
                       openChannelResult.getChannelStatus().getLatestCommittedOffsetToken(),
                       channelName);
-              LOGGER.info(
-                  "New channel {} has offset token {}", channelName, lastCommittedOffsetToken);
-              offsetTracker.initializeFromSnowflake(lastCommittedOffsetToken);
+              LOGGER.info("New channel {} has SSv2 offset token {}", channelName, ssv2Offset);
+
+              long effectiveOffset = ssv2Offset;
+
+              // Only consult SSv1 when SSv2 has no committed offset yet (first-time migration).
+              // Once SSv2 has its own offset, it is authoritative.
+              if (ssv2Offset == NO_OFFSET_TOKEN_REGISTERED_IN_SNOWFLAKE
+                  && ssv1MigrationMode != Ssv1MigrationMode.SKIP
+                  && ssv1OffsetReader != null) {
+                // readCommittedOffset returns empty for "channel doesn't exist" (safe to proceed),
+                // returns a value for "channel has committed data" (use it or fail),
+                // and THROWS for transient/unexpected errors (must not silently proceed --
+                // falling through to consumer group offset could cause duplicates).
+                // Use SSv1 channel name format ({topic}_{partition}), not the SSv2
+                // format ({connectorName}_{topic}_{partition}).
+                OptionalLong ssv1Offset =
+                    ssv1OffsetReader.readCommittedOffset(tableName, ssv1ChannelName);
+                if (ssv1Offset.isPresent()) {
+                  LOGGER.info(
+                      "SSv1 offset for {}: {}, SSv2 has no offset yet",
+                      channelName,
+                      ssv1Offset.getAsLong());
+                  if (ssv1MigrationMode == Ssv1MigrationMode.FAIL_ON_MISMATCH) {
+                    throw new ConnectException(
+                        "SSv1 channel "
+                            + channelName
+                            + " has committed offset "
+                            + ssv1Offset.getAsLong()
+                            + " but SSv2 has none. "
+                            + "Set migration mode to 'migrate' to use the SSv1 offset.");
+                  }
+                  effectiveOffset = ssv1Offset.getAsLong();
+                }
+              }
+
+              offsetTracker.initializeFromSnowflake(effectiveOffset);
               return openChannelResult.getChannel();
             },
             openChannelIoExecutor);

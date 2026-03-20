@@ -31,6 +31,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.apache.kafka.connect.sink.SinkTaskContext;
 
@@ -262,8 +263,21 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
         }
         targetPipeName = buildDefaultPipeName(tableName);
       } else {
-        // When validation is disabled (high-performance mode), allow non-default pipes.
+        // When validation is disabled (high-performance mode), allow non-default pipes
+        // unless SSv1 offset migration is active.
         final boolean pipeExists = this.conn.pipeExist(tableName);
+        if (pipeExists) {
+          taskConfig
+              .isCustomPipeDisallowed()
+              .ifPresent(
+                  reason -> {
+                    throw new ConnectException(
+                        "Table '"
+                            + tableName
+                            + "' has an explicit pipe with the same name. "
+                            + reason);
+                  });
+        }
         targetPipeName = pipeExists ? tableName : buildDefaultPipeName(tableName);
       }
 

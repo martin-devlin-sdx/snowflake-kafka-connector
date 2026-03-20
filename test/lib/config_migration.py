@@ -43,6 +43,17 @@ def v4_config_to_v3(config: Dict[str, str]) -> Dict[str, str]:
     v3.setdefault("snowflake.enable.schematization", "true")
     v3.setdefault("buffer.flush.time", "1")
     v3.setdefault("snowflake.streaming.max.client.lag", "1")
+    # Map v4 include-connector-name back to the v3 channel naming flag
+    include_connector_name = v3.pop(
+        "snowflake.streaming.ssv1.offset.migration.include.connector.name", None
+    )
+    if include_connector_name is not None:
+        v3.setdefault(
+            "snowflake.streaming.channel.name.include.connector.name",
+            include_connector_name,
+        )
+    # Strip v4-only settings.
+    v3.pop("snowflake.streaming.ssv1.offset.migration", None)
     return v3
 
 
@@ -57,4 +68,14 @@ def v3_config_to_v4(config: Dict[str, str]) -> Dict[str, str]:
     # v3 always normalizes column identifiers (hardcoded behavior).
     # Preserve that by defaulting normalization to true for v4.
     v4.setdefault("snowflake.enable.column.identifier.normalization", "true")
+    # If v3 used connector-name-prefixed channel naming, carry it over so
+    # the SSv1 offset migration lookup uses the matching channel name format.
+    include_connector_name = v4.pop(
+        "snowflake.streaming.channel.name.include.connector.name", None
+    )
+    if include_connector_name is not None:
+        v4.setdefault(
+            "snowflake.streaming.ssv1.offset.migration.include.connector.name",
+            include_connector_name,
+        )
     return v4

@@ -28,6 +28,9 @@ import com.snowflake.kafka.connector.internal.streaming.StreamingErrorHandler;
 import com.snowflake.kafka.connector.internal.streaming.TopicPartitionChannelInsertionException;
 import com.snowflake.kafka.connector.internal.streaming.telemetry.SnowflakeTelemetryChannelStatus;
 import com.snowflake.kafka.connector.internal.streaming.v2.channel.PartitionOffsetTracker;
+import com.snowflake.kafka.connector.internal.streaming.v2.migration.Ssv1MigrationMode;
+import com.snowflake.kafka.connector.internal.streaming.v2.migration.Ssv1OffsetReadException;
+import com.snowflake.kafka.connector.internal.streaming.v2.migration.Ssv1OffsetReader;
 import com.snowflake.kafka.connector.internal.telemetry.SnowflakeTelemetryService;
 import com.snowflake.kafka.connector.records.SnowflakeMetadataConfig;
 import java.nio.charset.StandardCharsets;
@@ -39,6 +42,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -63,6 +67,7 @@ class SnowpipeStreamingPartitionChannelTest {
   private static final String TABLE_NAME = "test_table";
   private static final String TOPIC_NAME = "test_topic";
   private static final int PARTITION = 0;
+  private static final String SSV1_CHANNEL_NAME = TOPIC_NAME + "_" + PARTITION;
 
   private String channelName;
   private String pipeName;
@@ -305,6 +310,9 @@ class SnowpipeStreamingPartitionChannelTest {
         TaskMetrics.noop(),
         false,
         false,
+        null,
+        Ssv1MigrationMode.SKIP,
+        null,
         null);
   }
 
@@ -379,7 +387,10 @@ class SnowpipeStreamingPartitionChannelTest {
         TaskMetrics.noop(),
         true,
         shouldEvolveSchema,
-        mockConnService);
+        mockConnService,
+        Ssv1MigrationMode.SKIP,
+        null,
+        null);
   }
 
   private static final List<DescribeTableRow> STANDARD_TABLE_SCHEMA =
@@ -466,7 +477,10 @@ class SnowpipeStreamingPartitionChannelTest {
             TaskMetrics.noop(),
             true,
             true,
-            mockConnService);
+            mockConnService,
+            Ssv1MigrationMode.SKIP,
+            null,
+            null);
 
     SinkRecord record = buildValidRecord(0);
     channel.insertRecord(record, true);
@@ -525,6 +539,174 @@ class SnowpipeStreamingPartitionChannelTest {
                   boolean hasCountry = columnInfos.containsKey("COUNTRY");
                   return hasCity && hasAge && hasCountry;
                 }));
+  }
+
+  // --- SSv1 offset migration tests ---
+
+  private SnowpipeStreamingPartitionChannel createPartitionChannelWithMigration(
+      Ssv1MigrationMode migrationMode, Ssv1OffsetReader ssv1OffsetReader) {
+    final TopicPartition topicPartition = new TopicPartition(TOPIC_NAME, PARTITION);
+    final PartitionOffsetTracker offsetTracker =
+        new PartitionOffsetTracker(topicPartition, sinkTaskContext, channelName);
+    final SnowflakeTelemetryChannelStatus telemetryChannelStatus =
+        new SnowflakeTelemetryChannelStatus(
+            TABLE_NAME,
+            CONNECTOR_NAME,
+            channelName,
+            System.currentTimeMillis(),
+            Optional.empty(),
+            offsetTracker.persistedOffsetRef(),
+            offsetTracker.processedOffsetRef(),
+            offsetTracker.consumerGroupOffsetRef());
+
+    return new SnowpipeStreamingPartitionChannel(
+        TABLE_NAME,
+        channelName,
+        pipeName,
+        trackingClient,
+        openChannelIoExecutor,
+        mockTelemetryService,
+        telemetryChannelStatus,
+        offsetTracker,
+        new SnowflakeMetadataConfig(),
+        false,
+        mockErrorHandler,
+        TaskMetrics.noop(),
+        false,
+        false,
+        null,
+        migrationMode,
+        ssv1OffsetReader,
+        TOPIC_NAME + "_" + PARTITION);
+  }
+
+  @Test
+  void migration_skip_doesNotConsultSsv1() {
+    Ssv1OffsetReader mockReader = mock(Ssv1OffsetReader.class);
+
+    SnowpipeStreamingPartitionChannel channel =
+        createPartitionChannelWithMigration(Ssv1MigrationMode.SKIP, mockReader);
+    channel.getChannel();
+
+    // SSv1 reader should never be called when mode is SKIP
+    verify(mockReader, never()).readCommittedOffset(any(), any());
+  }
+
+  @Test
+  void migration_migrate_usesSsv1OffsetWhenSsv2HasNone() {
+    Ssv1OffsetReader mockReader = mock(Ssv1OffsetReader.class);
+    when(mockReader.readCommittedOffset(TABLE_NAME, SSV1_CHANNEL_NAME))
+        .thenReturn(OptionalLong.of(100L));
+
+    SnowpipeStreamingPartitionChannel channel =
+        createPartitionChannelWithMigration(Ssv1MigrationMode.MIGRATE, mockReader);
+    channel.getChannel();
+
+    // SSv2 has no offset (null from FakeClient), so SSv1 should be consulted
+    verify(mockReader).readCommittedOffset(TABLE_NAME, SSV1_CHANNEL_NAME);
+    // Kafka offset should be set to ssv1Offset + 1 (101)
+    assertEquals(101L, sinkTaskContext.offset(new TopicPartition(TOPIC_NAME, PARTITION)));
+  }
+
+  @Test
+  void migration_migrate_ignoresSsv1WhenSsv2HasOffset() {
+    // Pre-seed an offset in the tracking client so SSv2 openChannel returns a non-null offset
+    trackingClient =
+        new TrackingStreamingIngestClient(pipeName, trackingClientSupplier) {
+          @Override
+          public OpenChannelResult openChannel(String channelNameArg, String offsetToken) {
+            OpenChannelResult result = super.openChannel(channelNameArg, offsetToken);
+            ChannelStatus status =
+                new ChannelStatus(
+                    "db",
+                    "schema",
+                    pipeName,
+                    channelNameArg,
+                    "SUCCESS",
+                    "50",
+                    Instant.now(),
+                    0,
+                    0,
+                    0,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Instant.now());
+            return new OpenChannelResult(result.getChannel(), status);
+          }
+        };
+
+    Ssv1OffsetReader mockReader = mock(Ssv1OffsetReader.class);
+
+    SnowpipeStreamingPartitionChannel channel =
+        createPartitionChannelWithMigration(Ssv1MigrationMode.MIGRATE, mockReader);
+    channel.getChannel();
+
+    // SSv2 already has an offset, so SSv1 should NOT be consulted
+    verify(mockReader, never()).readCommittedOffset(any(), any());
+    // Kafka offset should be set to ssv2Offset + 1 (51)
+    assertEquals(51L, sinkTaskContext.offset(new TopicPartition(TOPIC_NAME, PARTITION)));
+  }
+
+  @Test
+  void migration_failOnMismatch_throwsWhenSsv1HasOffset() {
+    Ssv1OffsetReader mockReader = mock(Ssv1OffsetReader.class);
+    when(mockReader.readCommittedOffset(TABLE_NAME, SSV1_CHANNEL_NAME))
+        .thenReturn(OptionalLong.of(100L));
+
+    SnowpipeStreamingPartitionChannel channel =
+        createPartitionChannelWithMigration(Ssv1MigrationMode.FAIL_ON_MISMATCH, mockReader);
+
+    // getChannel() should throw because SSv1 has an offset but mode is FAIL_ON_MISMATCH
+    assertThrows(ConnectException.class, () -> channel.getChannel());
+  }
+
+  @Test
+  void migration_failOnMismatch_proceedsWhenSsv1HasNoOffset() {
+    Ssv1OffsetReader mockReader = mock(Ssv1OffsetReader.class);
+    when(mockReader.readCommittedOffset(TABLE_NAME, SSV1_CHANNEL_NAME))
+        .thenReturn(OptionalLong.empty());
+
+    SnowpipeStreamingPartitionChannel channel =
+        createPartitionChannelWithMigration(Ssv1MigrationMode.FAIL_ON_MISMATCH, mockReader);
+    channel.getChannel();
+
+    // SSv1 has no offset, so the channel open should succeed
+    verify(mockReader).readCommittedOffset(TABLE_NAME, SSV1_CHANNEL_NAME);
+  }
+
+  @Test
+  void migration_ssv2OpenFails_doesNotConsultSsv1() {
+    // Simulate SSv2 openChannel failure
+    trackingClientSupplier.setThrowOnOpenChannel(true);
+
+    Ssv1OffsetReader mockReader = mock(Ssv1OffsetReader.class);
+
+    SnowpipeStreamingPartitionChannel channel =
+        createPartitionChannelWithMigration(Ssv1MigrationMode.MIGRATE, mockReader);
+
+    // SSv2 open failed, so the channel init future should fail
+    assertThrows(RuntimeException.class, () -> channel.getChannel());
+
+    // SSv1 reader should NOT have been called — SSv2 must open successfully first
+    verify(mockReader, never()).readCommittedOffset(any(), any());
+  }
+
+  @Test
+  void migration_ssv1ReadFails_propagatesException() {
+    Ssv1OffsetReader mockReader = mock(Ssv1OffsetReader.class);
+    when(mockReader.readCommittedOffset(TABLE_NAME, SSV1_CHANNEL_NAME))
+        .thenThrow(new Ssv1OffsetReadException("Network error reading SSv1 offset"));
+
+    SnowpipeStreamingPartitionChannel channel =
+        createPartitionChannelWithMigration(Ssv1MigrationMode.MIGRATE, mockReader);
+
+    // The SSv1 read failure must propagate, not silently fall through to consumer group offset.
+    // Falling through would risk duplicates if the consumer group offset is behind the SSv1 offset.
+    Ssv1OffsetReadException exception =
+        assertThrows(Ssv1OffsetReadException.class, () -> channel.getChannel());
+    assertTrue(exception.getMessage().contains("Network error"));
   }
 
   /** Shared state holder that tracks channel operations for verification in tests. */

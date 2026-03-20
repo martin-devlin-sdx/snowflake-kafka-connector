@@ -33,6 +33,15 @@ public final class Constants {
         "snowflake.open.channel.io.threads";
     public static final int SNOWFLAKE_OPEN_CHANNEL_IO_THREADS_DEFAULT = 50;
 
+    // SSv1 offset migration
+    public static final String SNOWFLAKE_SSV1_OFFSET_MIGRATION =
+        "snowflake.streaming.ssv1.offset.migration";
+    public static final String SNOWFLAKE_SSV1_OFFSET_MIGRATION_DEFAULT = "skip";
+    public static final String SNOWFLAKE_SSV1_OFFSET_MIGRATION_INCLUDE_CONNECTOR_NAME =
+        "snowflake.streaming.ssv1.offset.migration.include.connector.name";
+    public static final boolean SNOWFLAKE_SSV1_OFFSET_MIGRATION_INCLUDE_CONNECTOR_NAME_DEFAULT =
+        false;
+
     // Client-side validation
     public static final String SNOWFLAKE_CLIENT_VALIDATION_ENABLED =
         "snowflake.client.validation.enabled";

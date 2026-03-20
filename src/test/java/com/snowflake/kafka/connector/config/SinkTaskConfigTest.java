@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.snowflake.kafka.connector.ConnectorConfigTools;
 import com.snowflake.kafka.connector.Utils;
+import com.snowflake.kafka.connector.internal.streaming.v2.migration.Ssv1MigrationMode;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -108,5 +109,84 @@ public class SinkTaskConfigTest {
   public void from_nullMap_treatedAsEmptyAndThrowsForMissingRequired() {
     // from(null) replaces null with empty map, then validation fails for missing connector name
     assertThrows(IllegalArgumentException.class, () -> SinkTaskConfig.from(null));
+  }
+
+  @Test
+  public void from_defaultMigrationMode_isSkip() {
+    SinkTaskConfig config = SinkTaskConfig.from(minimalConfig());
+    assertEquals(Ssv1MigrationMode.SKIP, config.getSsv1MigrationMode());
+  }
+
+  @Test
+  public void from_migrationMode_migrate() {
+    Map<String, String> config = minimalConfig();
+    config.put(SNOWFLAKE_SSV1_OFFSET_MIGRATION, "migrate");
+
+    SinkTaskConfig parsed = SinkTaskConfig.from(config);
+    assertEquals(Ssv1MigrationMode.MIGRATE, parsed.getSsv1MigrationMode());
+  }
+
+  @Test
+  public void from_migrationMode_failOnMismatch() {
+    Map<String, String> config = minimalConfig();
+    config.put(SNOWFLAKE_SSV1_OFFSET_MIGRATION, "fail_on_mismatch");
+
+    SinkTaskConfig parsed = SinkTaskConfig.from(config);
+    assertEquals(Ssv1MigrationMode.FAIL_ON_MISMATCH, parsed.getSsv1MigrationMode());
+  }
+
+  @Test
+  public void from_migrationMode_caseInsensitive() {
+    Map<String, String> config = minimalConfig();
+    config.put(SNOWFLAKE_SSV1_OFFSET_MIGRATION, "MIGRATE");
+
+    SinkTaskConfig parsed = SinkTaskConfig.from(config);
+    assertEquals(Ssv1MigrationMode.MIGRATE, parsed.getSsv1MigrationMode());
+  }
+
+  @Test
+  public void from_migrationMode_invalidValue_throws() {
+    Map<String, String> config = minimalConfig();
+    config.put(SNOWFLAKE_SSV1_OFFSET_MIGRATION, "invalid_value");
+
+    assertThrows(IllegalArgumentException.class, () -> SinkTaskConfig.from(config));
+  }
+
+  @Test
+  public void isCustomPipeDisallowed_skipMode_isEmpty() {
+    SinkTaskConfig config = SinkTaskConfig.from(minimalConfig());
+    assertTrue(config.isCustomPipeDisallowed().isEmpty());
+  }
+
+  @Test
+  public void isCustomPipeDisallowed_migrateMode_returnsReason() {
+    Map<String, String> raw = minimalConfig();
+    raw.put(SNOWFLAKE_SSV1_OFFSET_MIGRATION, "migrate");
+    SinkTaskConfig config = SinkTaskConfig.from(raw);
+    assertTrue(config.isCustomPipeDisallowed().isPresent());
+    assertTrue(config.isCustomPipeDisallowed().get().contains("MIGRATE"));
+  }
+
+  @Test
+  public void isCustomPipeDisallowed_failOnMismatchMode_returnsReason() {
+    Map<String, String> raw = minimalConfig();
+    raw.put(SNOWFLAKE_SSV1_OFFSET_MIGRATION, "fail_on_mismatch");
+    SinkTaskConfig config = SinkTaskConfig.from(raw);
+    assertTrue(config.isCustomPipeDisallowed().isPresent());
+    assertTrue(config.isCustomPipeDisallowed().get().contains("FAIL_ON_MISMATCH"));
+  }
+
+  @Test
+  public void from_defaultIncludeConnectorName_isFalse() {
+    SinkTaskConfig config = SinkTaskConfig.from(minimalConfig());
+    assertFalse(config.isSsv1MigrationIncludeConnectorName());
+  }
+
+  @Test
+  public void from_includeConnectorNameTrue_isParsed() {
+    Map<String, String> raw = minimalConfig();
+    raw.put(SNOWFLAKE_SSV1_OFFSET_MIGRATION_INCLUDE_CONNECTOR_NAME, "true");
+    SinkTaskConfig config = SinkTaskConfig.from(raw);
+    assertTrue(config.isSsv1MigrationIncludeConnectorName());
   }
 }

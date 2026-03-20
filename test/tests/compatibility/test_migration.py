@@ -34,7 +34,7 @@ from lib.utils import RecordProducer, wait_for
 
 # Don't parameterize on v3, we create both connector versions explicitly here.
 @pytest.mark.parametrize("connector_version", ["v4"], indirect=True)
-def test_migration_without_duplicates(
+def test_migration_without_ingestion(
     driver: KafkaDriver,
     name_salt,
     create_custom_connector,
@@ -110,16 +110,25 @@ def test_migration_without_duplicates(
 
 # Don't parameterize on v3, we create both connector versions explicitly here.
 @pytest.mark.parametrize("connector_version", ["v4"], indirect=True)
-def test_migration_with_possible_duplicates(
+@pytest.mark.parametrize("ssv1_offset_migration", ["skip", "migrate"])
+def test_migration_with_ingestion(
     driver: KafkaDriver,
     name_salt,
     create_custom_connector,
     create_table,
     wait_for_rows,
+    ssv1_offset_migration,
 ):
-    """Test migration when there are in-flight data during switchover."""
+    """Test migration when there are in-flight data during switchover.
 
-    test_name = "test_migration_with_possible_duplicates"
+    With ssv1_offset_migration=skip (default), KC v4 starts from the consumer group offset,
+    which may lag behind the SSv1 committed offset, causing duplicates.
+
+    With ssv1_offset_migration=migrate, KC v4 reads the SSv1 committed offset and uses it as
+    the starting point, so no duplicates should occur.
+    """
+
+    test_name = f"test_migration_with_possible_duplicates_{ssv1_offset_migration}"
     warmup_records = 10
 
     table = create_table(
@@ -167,7 +176,10 @@ def test_migration_with_possible_duplicates(
         logging.info(
             "Creating v4 connector (same name → inherits consumer group offsets)"
         )
-        v4_config_template = v3_config_to_v4(v3_config_template)
+        v4_config_template = {
+            **v3_config_to_v4(v3_config_template),
+            "snowflake.streaming.ssv1.offset.migration": ssv1_offset_migration,
+        }
         create_custom_connector(test_name, v4_config_template)
 
         logging.info("Letting v4 catch up for 5s before snapshot")
@@ -211,6 +223,13 @@ def test_migration_with_possible_duplicates(
     assert distinct_offsets == expected, (
         f"Expected {expected} distinct offsets, got {distinct_offsets}"
     )
-    assert total_rows > expected, (
-        f"Expected duplicates (total > {expected}), but got {total_rows}"
-    )
+
+    if ssv1_offset_migration == "migrate":
+        assert total_rows == expected, (
+            f"With migrate mode, expected exactly {expected} rows (no duplicates), "
+            f"but got {total_rows}"
+        )
+    else:
+        assert total_rows > expected, (
+            f"Expected duplicates (total > {expected}), but got {total_rows}"
+        )
