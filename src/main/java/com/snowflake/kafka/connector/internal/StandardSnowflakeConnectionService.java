@@ -62,7 +62,7 @@ public class StandardSnowflakeConnectionService implements SnowflakeConnectionSe
     String createTableQuery =
         "create table if not exists identifier(?) (record_metadata variant comment 'created by"
             + " automatic table creation from Snowflake Kafka Connector High Performance')"
-            + " enable_schema_evolution = true";
+            + " enable_schema_evolution = true error_logging = true";
 
     try {
       PreparedStatement stmt = conn.prepareStatement(createTableQuery);
@@ -361,6 +361,39 @@ public class StandardSnowflakeConnectionService implements SnowflakeConnectionSe
         hasRolePrivilege,
         hasTableOptionEnabled);
     return hasPermission;
+  }
+
+  @Override
+  public boolean hasErrorLoggingEnabled(String tableName) {
+    checkConnection();
+    InternalUtils.assertNotEmpty("tableName", tableName);
+
+    String query = "show tables like ? limit 1";
+    try {
+      PreparedStatement stmt = conn.prepareStatement(query);
+      String escapedTableName =
+          tableName.replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%");
+      stmt.setString(1, escapedTableName);
+      ResultSet result = stmt.executeQuery();
+      while (result.next()) {
+        String errorLogging = "N";
+        try {
+          errorLogging = result.getString("error_logging");
+        } catch (SQLException e) {
+          LOGGER.warn(
+              "error_logging column not found in SHOW TABLES output for table {}: {}",
+              tableName,
+              e.getMessage());
+        }
+        if ("Y".equals(errorLogging)) {
+          return true;
+        }
+      }
+      stmt.close();
+    } catch (SQLException e) {
+      throw SnowflakeErrors.ERROR_2001.getException(e);
+    }
+    return false;
   }
 
   @Override

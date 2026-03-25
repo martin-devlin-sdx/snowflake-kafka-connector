@@ -122,4 +122,12 @@ public interface SnowflakeConnectionService {
    * @return whether schema evolution has the required permission to be performed
    */
   boolean shouldEvolveSchema(String tableName, String role);
+
+  /**
+   * Check whether the given table has ERROR_LOGGING enabled via SHOW TABLES.
+   *
+   * @param tableName table name
+   * @return true if error_logging is "Y", false otherwise or if the column is not present
+   */
+  boolean hasErrorLoggingEnabled(String tableName);
 }

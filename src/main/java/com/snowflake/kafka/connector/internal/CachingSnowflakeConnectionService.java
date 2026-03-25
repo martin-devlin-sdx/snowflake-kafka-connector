@@ -212,6 +212,11 @@ public class CachingSnowflakeConnectionService implements SnowflakeConnectionSer
     return delegate.shouldEvolveSchema(tableName, role);
   }
 
+  @Override
+  public boolean hasErrorLoggingEnabled(String tableName) {
+    return delegate.hasErrorLoggingEnabled(tableName);
+  }
+
   private void logStatsIfNeeded() {
     final long now = System.currentTimeMillis();
     final long lastLogged = lastStatsLogTimestamp.get();
