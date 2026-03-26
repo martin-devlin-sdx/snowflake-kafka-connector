@@ -199,12 +199,23 @@ v4-only: no v3 equivalent. `snowflake.client.validation.enabled=false`.
 
 #### 3.1.7 Iceberg Tables
 
-| Status | Test | Version | Rationale | Format | Cloud |
-|:------:|------|---------|-----------|--------|-------|
-| 🔴 | Iceberg JSON ingestion | v4 | Iceberg is a new feature area; v3 Iceberg was experimental | JSON | AWS |
-| 🔴 | Iceberg Avro ingestion | v4 | Same | Avro SR | AWS |
-| 🔴 | Iceberg SE JSON | v4 | Same | JSON | AWS |
-| 🔴 | Iceberg SE Avro | v4 | Same | Avro SR | AWS |
+> **V3 scope note**: V3 (3.2.x) has iceberg support via `snowflake.streaming.iceberg.enabled=true`
+> but it was experimental and used custom connector-side code (`IcebergInitService`,
+> `IcebergTableStreamingRecordMapper`, `IcebergSchemaEvolutionService`) that was removed in v4.
+> V4 delegates iceberg entirely to SSv2 which handles it transparently.  The `v4_config_to_v3`
+> migration does not inject `snowflake.streaming.iceberg.enabled=true`, so running these tests
+> against v3 would silently write to regular (non-iceberg) tables rather than fail loudly.
+> All iceberg tests are therefore v4-only.
+>
+> **External volume prerequisite**: tests require an AWS external volume named
+> `kafka_push_e2e_volume_aws` (override with env var `ICEBERG_EXTERNAL_VOLUME`).
+
+| Status | Test | Version | Rationale | Format | Cloud | File |
+|:------:|------|---------|-----------|--------|-------|------|
+| 🟢 | Iceberg JSON ingestion (2x2: validation x schematization) | v4 | schema=off: VARIANT bag-of-bits; schema=on: mixed VARIANT+typed table (BIGINT/DOUBLE/TEXT pre-declared, no SE needed); all 4 combos pass | JSON | AWS | `test_iceberg_json.py::test_iceberg_json_variant` |
+| 🔴 | Iceberg Avro ingestion | v4 | Same | Avro SR | AWS | -- |
+| 🟡 | Iceberg SE JSON (xfail -- known limitation) | v4 | ICEBERG_VERSION=3 is required for VARIANT but silently discards typed columns during server-side SE; client-side ALTER TABLE ADD COLUMN also fails; remove xfail once Snowflake lifts the restriction | JSON | AWS | `test_iceberg_json.py::test_iceberg_se_json` |
+| 🔴 | Iceberg SE Avro | v4 | Same | Avro SR | AWS | -- |
 
 #### 3.1.8 Pre-Flight Check (FR11)
 
@@ -558,9 +569,9 @@ Must be complete before GA. Focus on type compatibility and error handling parit
 | 25 | 🔴 | Auto table creation (high-throughput mode) | FR3 | Table Creation | New |
 | 26 | 🔴 | Default Pipe: Identity column (both modes) | FR7 | Default Pipe | New |
 | 27 | 🔴 | Default Pipe: Default timestamp (both modes) | FR7 | Default Pipe | New |
-| 28 | 🔴 | Iceberg JSON (AWS) | General | Iceberg | New |
+| 28 | 🟢 | Iceberg JSON (AWS) -- 2x2 matrix; schema=on uses pre-declared mixed VARIANT+typed table | General | Iceberg | New |
 | 29 | 🔴 | Iceberg Avro (AWS) | General | Iceberg | New |
-| 30 | 🔴 | Iceberg SE JSON (AWS) | FR6 | Iceberg | New |
+| 30 | 🟡 | Iceberg SE JSON (AWS) -- xfail; typed SE blocked by ICEBERG_VERSION=3 constraint | FR6 | Iceberg | New |
 | 31 | 🔴 | Iceberg SE Avro (AWS) | FR6 | Iceberg | New |
 | 32 | 🔴 | Streaming client parameter override | General | Config | New |
 | 33 | ⚫ | `test_type_compatibility_avro.py`: Avro type mapping (dual, v3 blocked) | FR1 | Type parity | New |
