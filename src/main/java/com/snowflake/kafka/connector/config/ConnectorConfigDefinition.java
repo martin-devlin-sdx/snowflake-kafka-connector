@@ -258,7 +258,7 @@ public class ConnectorConfigDefinition {
             LOW,
             "Map of Key value pairs representing Streaming Client Properties to Override. These are"
                 + " optional and recommended to use ONLY after consulting Snowflake Support. Format"
-                + " : comma-separated tuples, e.g.: key1:value1,key2:value2",
+                + " : comma-separated tuples, e.g.: key1:value1,key2:\"value2\"",
             CONNECTOR_CONFIG_DOC,
             0,
             Width.NONE,

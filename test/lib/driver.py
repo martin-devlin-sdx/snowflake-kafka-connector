@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import time
 from typing import Callable, Dict
 import uuid
@@ -607,6 +608,14 @@ class KafkaDriver:
         rest_request["config"].setdefault(
             "snowflake.enable.column.identifier.normalization", "true"
         )
+
+        # Allow the Snowpipe Streaming SDK's URL to be overridden for testing
+        # against a local proxy. The value is quoted so the colon-delimited
+        # parser handles the URL's embedded colons correctly.
+        if snowpipe_streaming_url := os.environ.get("SNOWPIPE_STREAMING_URL"):
+            rest_request["config"][
+                "snowflake.streaming.client.provider.override.map"
+            ] = f'url:"{snowpipe_streaming_url}"'
 
         MAX_RETRY = 9
         retry = 0

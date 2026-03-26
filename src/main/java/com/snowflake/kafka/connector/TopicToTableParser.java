@@ -8,10 +8,21 @@ import java.util.Map;
 
 public class TopicToTableParser {
   private final String input;
+  private final String formatHint;
   private int index;
 
+  private static final String TOPIC_TABLE_FORMAT_HINT =
+      "Format: <topic-1>:<table-1>,<topic-2>:\"<table-2>\",...";
+  private static final String KEY_VALUE_FORMAT_HINT =
+      "Format: <key-1>:<value-1>,<key-2>:\"<value-2>\",...";
+
   TopicToTableParser(String input) {
+    this(input, TOPIC_TABLE_FORMAT_HINT);
+  }
+
+  private TopicToTableParser(String input, String formatHint) {
     this.input = input;
+    this.formatHint = formatHint;
   }
 
   public static Map<String, String> parse(String input) {
@@ -34,6 +45,43 @@ public class TopicToTableParser {
       result.put(newTopic, entry.getTable());
     }
     return result;
+  }
+
+  /**
+   * Parses comma-separated key:value pairs, supporting quoted values for values that contain colons
+   * or commas (e.g. URLs). Unlike {@link #parse(String)}, values are not uppercased and no
+   * duplicate/overlap checking is performed.
+   *
+   * <p>Examples:
+   *
+   * <ul>
+   *   <li>{@code max_client_lag:10} — simple unquoted value
+   *   <li>{@code url:"http://host:8084",max_client_lag:10} — quoted value containing colons
+   * </ul>
+   */
+  public static Map<String, String> parseKeyValuePairs(String input) {
+    TopicToTableParser parser = new TopicToTableParser(input, KEY_VALUE_FORMAT_HINT);
+    Map<String, String> result = new LinkedHashMap<>();
+
+    while (true) {
+      parser.skipWhitespace();
+      if (parser.isAtEnd()) {
+        return result;
+      }
+
+      String key = parser.parseToken(false);
+      parser.skipWhitespace();
+      parser.expect(':');
+      parser.skipWhitespace();
+      String value = parser.parseToken(false);
+      result.put(key, value);
+
+      parser.skipWhitespace();
+      if (parser.isAtEnd()) {
+        return result;
+      }
+      parser.expect(',');
+    }
   }
 
   public List<Entry> parseEntries() {
@@ -139,7 +187,8 @@ public class TopicToTableParser {
     sb.append(index);
     sb.append(": \"");
     sb.append(input);
-    sb.append("\". Format: <topic-1>:<table-1>,<topic-2>:\"<table-2>\",...");
+    sb.append("\". ");
+    sb.append(formatHint);
     return new IllegalArgumentException(sb.toString());
   }
 

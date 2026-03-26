@@ -68,6 +68,7 @@ public class StreamingClientFactory {
     props.put("role", config.getSnowflakeRole());
     props.put("account", url.getAccount());
     props.put("host", url.getUrlWithoutPort());
+
     return props;
   }
 

@@ -388,26 +388,22 @@ public class Utils {
   }
 
   /**
-   * Convert a Comma separated key value pairs into a Map
+   * Convert a Comma separated key value pairs into a Map. Supports quoted values for values that
+   * contain colons or commas (e.g. URLs): {@code url:"http://host:8084",key2:value2}.
    *
    * @param input Provided in KC config
    * @return Map
    */
   public static Map<String, String> parseCommaSeparatedKeyValuePairs(String input) {
-    Map<String, String> pairs = new HashMap<>();
-    for (String str : input.split(",")) {
-      String[] tt = str.split(":");
-
-      if (tt.length != 2 || tt[0].trim().isEmpty() || tt[1].trim().isEmpty()) {
-        LOGGER.error(
-            "Invalid {} config format: {}",
-            KafkaConnectorConfigParams.SNOWFLAKE_STREAMING_CLIENT_PROVIDER_OVERRIDE_MAP,
-            input);
-        throw SnowflakeErrors.ERROR_0030.getException();
-      }
-      pairs.put(tt[0].trim(), tt[1].trim());
+    try {
+      return TopicToTableParser.parseKeyValuePairs(input);
+    } catch (IllegalArgumentException e) {
+      LOGGER.error(
+          "Invalid {} config format: {}",
+          KafkaConnectorConfigParams.SNOWFLAKE_STREAMING_CLIENT_PROVIDER_OVERRIDE_MAP,
+          input);
+      throw SnowflakeErrors.ERROR_0030.getException(e.getMessage());
     }
-    return pairs;
   }
 
   static final String[] loginPropList = {

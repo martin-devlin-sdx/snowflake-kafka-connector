@@ -1,10 +1,12 @@
 package com.snowflake.kafka.connector.config;
 
+import com.snowflake.kafka.connector.TopicToTableParser;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
 
 /**
- * Class which validates key value pairs in the format <key-1>:<value-1>,<key-2>:<value-2>
+ * Validates key value pairs in the format {@code <key-1>:<value-1>,<key-2>:<value-2>}. Values that
+ * contain colons or commas (e.g. URLs) can be quoted: {@code url:"http://host:8084"}.
  *
  * <p>It doesn't validate the type of values, only making sure the format is correct.
  */
@@ -13,33 +15,17 @@ class CommaSeparatedKeyValueValidator implements ConfigDef.Validator {
 
   public void ensureValid(String name, Object value) {
     String s = (String) value;
-    // Validate the comma-separated key-value pairs string
-    if (s != null && !s.isEmpty() && !isValidCommaSeparatedKeyValueString(s)) {
-      throw new ConfigException(name, value, "Format: <key-1>:<value-1>,<key-2>:<value-2>,...");
-    }
-  }
-
-  private boolean isValidCommaSeparatedKeyValueString(String input) {
-    // Split the input string by commas
-    String[] pairs = input.split(",");
-    for (String pair : pairs) {
-      // Trim the pair to remove leading and trailing whitespaces
-      pair = pair.trim();
-      // Split each pair by colon
-      String[] keyValue = pair.split(":");
-      // Check if the pair has exactly two elements after trimming
-      if (keyValue.length != 2) {
-        return false;
-      }
-      // Check if the key or value is empty after trimming
-      if (keyValue[0].trim().isEmpty() || keyValue[1].trim().isEmpty()) {
-        return false;
+    if (s != null && !s.isEmpty()) {
+      try {
+        TopicToTableParser.parseKeyValuePairs(s);
+      } catch (IllegalArgumentException e) {
+        throw new ConfigException(name, value, e.getMessage());
       }
     }
-    return true;
   }
 
   public String toString() {
-    return "Comma-separated key-value pairs format: <key-1>:<value-1>,<key-2>:<value-2>,...";
+    return "Comma-separated key-value pairs format:"
+        + " <key-1>:<value-1>,<key-2>:\"<value-2>\",...";
   }
 }
