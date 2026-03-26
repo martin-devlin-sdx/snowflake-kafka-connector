@@ -15,16 +15,13 @@ Prerequisites:
 
 import json
 import logging
-import os
 
 import pytest
 
 from lib.config_migration import V4_CONFIG_TEMPLATE
-from lib.driver import KafkaDriver, quote_name
+from lib.driver import KafkaDriver
 
 logger = logging.getLogger(__name__)
-
-EXTERNAL_VOLUME = os.environ.get("ICEBERG_EXTERNAL_VOLUME", "kafka_push_e2e_volume_aws")
 
 _SAMPLE_MESSAGE = {
     "id": 1,
@@ -34,116 +31,6 @@ _SAMPLE_MESSAGE = {
     "animals_possessed": {"dogs": True, "cats": False},
 }
 RECORD_COUNT = 100
-
-
-# ---------------------------------------------------------------------------
-# Iceberg table helpers
-# ---------------------------------------------------------------------------
-
-
-def _create_iceberg_variant_table(driver: KafkaDriver, table_name: str) -> None:
-    """Create an iceberg table with VARIANT columns (V3 bag-of-bits format).
-
-    Uses `CREATE OR REPLACE` so repeated calls in the same test session are safe.
-    ``BASE_LOCATION`` is set to the table name — unique per test because the name
-    includes the session salt.
-
-    ``ICEBERG_VERSION = 3`` is required for VARIANT column support in iceberg tables.
-    Without it Snowflake rejects VARIANT as "unsupported data type for iceberg tables".
-    """
-    driver.snowflake_conn.cursor().execute(
-        f"CREATE OR REPLACE ICEBERG TABLE {quote_name(table_name)} "
-        f"(RECORD_METADATA VARIANT, RECORD_CONTENT VARIANT) "
-        f"EXTERNAL_VOLUME = '{EXTERNAL_VOLUME}' "
-        f"CATALOG = 'SNOWFLAKE' "
-        f"BASE_LOCATION = '{table_name}' "
-        f"ICEBERG_VERSION = 3"
-    )
-    logger.info(f"Created iceberg VARIANT table: {table_name}")
-
-
-def _create_iceberg_mixed_table(driver: KafkaDriver, table_name: str) -> None:
-    """Create an iceberg table with mixed VARIANT and typed columns.
-
-    Designed for schematization=on tests where the connector maps top-level JSON
-    keys to individual columns.  All columns from ``_SAMPLE_MESSAGE`` are
-    pre-declared so no schema evolution is needed:
-      - Scalar fields (id, body_temperature, name) → typed columns
-      - Complex fields (approved_coffee_types, animals_possessed) → VARIANT
-      - RECORD_METADATA → VARIANT (required for metadata fields)
-
-    ICEBERG_VERSION = 3 is retained to keep VARIANT column support.  Whether
-    Snowflake allows mixed typed+VARIANT columns on ICEBERG_VERSION=3 is
-    precisely what this helper is intended to discover empirically.
-    """
-    driver.snowflake_conn.cursor().execute(
-        f"CREATE OR REPLACE ICEBERG TABLE {quote_name(table_name)} "
-        f"(RECORD_METADATA VARIANT, "
-        f"ID BIGINT, "
-        f"BODY_TEMPERATURE DOUBLE, "
-        f"NAME TEXT, "
-        f"APPROVED_COFFEE_TYPES VARIANT, "
-        f"ANIMALS_POSSESSED VARIANT) "
-        f"EXTERNAL_VOLUME = '{EXTERNAL_VOLUME}' "
-        f"CATALOG = 'SNOWFLAKE' "
-        f"BASE_LOCATION = '{table_name}' "
-        f"ICEBERG_VERSION = 3"
-    )
-    logger.info(f"Created iceberg mixed table: {table_name}")
-
-
-def _create_iceberg_se_base_table(driver: KafkaDriver, table_name: str, extra_cols: str = "") -> None:
-    """Create an iceberg table with ENABLE_SCHEMA_EVOLUTION=TRUE for SE tests.
-
-    Starting schema has RECORD_METADATA VARIANT and an optional set of initial
-    typed columns (``extra_cols``).  The connector's client-side SE mechanism
-    (``ALTER ICEBERG TABLE ADD COLUMN``) will add any further columns at run time.
-    ``ICEBERG_VERSION = 3`` is required for VARIANT column support.
-    """
-    col_clause = "RECORD_METADATA VARIANT"
-    if extra_cols:
-        col_clause += f", {extra_cols}"
-    driver.snowflake_conn.cursor().execute(
-        f"CREATE OR REPLACE ICEBERG TABLE {quote_name(table_name)} "
-        f"({col_clause}) "
-        f"ENABLE_SCHEMA_EVOLUTION = TRUE "
-        f"EXTERNAL_VOLUME = '{EXTERNAL_VOLUME}' "
-        f"CATALOG = 'SNOWFLAKE' "
-        f"BASE_LOCATION = '{table_name}' "
-        f"ICEBERG_VERSION = 3"
-    )
-    logger.info(f"Created iceberg SE base table: {table_name}")
-
-
-def _create_iceberg_se_table(driver: KafkaDriver, table_name: str) -> None:
-    """Create an iceberg table suitable for schema evolution tests.
-
-    Uses RECORD_METADATA VARIANT + ICEBERG_VERSION = 3 (required for VARIANT columns).
-    Client-side SE (ALTER TABLE ADD COLUMN) is NOT used because:
-      - ICEBERG_VERSION = 3 tables reject ALTER TABLE ADD COLUMN for typed cols.
-      - Structured OBJECT (needed for ICEBERG_VERSION < 3) causes SSv2 to fail
-        with "Typed object schema mismatch in conversion".
-    Instead, server-side SE (ENABLE_SCHEMA_EVOLUTION = TRUE) is used with
-    validation=false (HT mode) so records flow directly to SSv2.  SSv2's
-    internal schema evolution handles typed column additions on the server side.
-    """
-    driver.snowflake_conn.cursor().execute(
-        f"CREATE OR REPLACE ICEBERG TABLE {quote_name(table_name)} "
-        f"(RECORD_METADATA VARIANT) "
-        f"ENABLE_SCHEMA_EVOLUTION = TRUE "
-        f"EXTERNAL_VOLUME = '{EXTERNAL_VOLUME}' "
-        f"CATALOG = 'SNOWFLAKE' "
-        f"BASE_LOCATION = '{table_name}' "
-        f"ICEBERG_VERSION = 3"
-    )
-    logger.info(f"Created iceberg SE table: {table_name}")
-
-
-def _drop_iceberg_table(driver: KafkaDriver, table_name: str) -> None:
-    driver.snowflake_conn.cursor().execute(
-        f"DROP ICEBERG TABLE IF EXISTS {quote_name(table_name)}"
-    )
-    logger.info(f"Dropped iceberg table: {table_name}")
 
 
 def _base_connector_config(topic: str, schematization: bool, validation: bool) -> dict:
@@ -170,7 +57,8 @@ def _base_connector_config(topic: str, schematization: bool, validation: bool) -
 @pytest.mark.parametrize("validation", [True, False], ids=["compat", "ht"])
 def test_iceberg_json_variant(
     driver: KafkaDriver,
-    name_salt: str,
+    create_iceberg_table,
+    create_topics,
     create_connector,
     wait_for_rows,
     validation: bool,
@@ -199,95 +87,90 @@ def test_iceberg_json_variant(
     """
     val_tag = "compat" if validation else "ht"
     sch_tag = "s1" if schematization else "s0"
-    table_name = f"iceberg_jv_{val_tag}_{sch_tag}{name_salt}".upper()
-    topic = table_name
+    base_name = f"iceberg_jv_{val_tag}_{sch_tag}"
 
     if schematization:
-        _create_iceberg_mixed_table(driver, table_name)
-    else:
-        _create_iceberg_variant_table(driver, table_name)
-    driver.createTopics(topic, partitionNum=1, replicationNum=1)
-
-    try:
-        create_connector(
-            v4_config=_base_connector_config(
-                topic, schematization=schematization, validation=validation
-            )
+        columns = (
+            "(RECORD_METADATA VARIANT, "
+            "ID BIGINT, "
+            "BODY_TEMPERATURE DOUBLE, "
+            "NAME TEXT, "
+            "APPROVED_COFFEE_TYPES VARIANT, "
+            "ANIMALS_POSSESSED VARIANT)"
         )
-        driver.startConnectorWaitTime()
+    else:
+        columns = "(RECORD_METADATA VARIANT, RECORD_CONTENT VARIANT)"
 
-        records = [
-            json.dumps(_SAMPLE_MESSAGE).encode("utf-8") for _ in range(RECORD_COUNT)
-        ]
-        driver.sendBytesData(topic, records, partition=0)
+    table = create_iceberg_table(base_name.upper(), columns=columns, cleanup_topic=False)
+    topic = create_topics([base_name], with_tables=False)[0]
 
-        wait_for_rows(table_name, RECORD_COUNT)
+    create_connector(
+        v4_config=_base_connector_config(topic, schematization=schematization, validation=validation)
+    )
+    driver.startConnectorWaitTime()
 
-        if not schematization:
-            # Bag-of-bits: full JSON payload is in RECORD_CONTENT VARIANT.
-            # PARSE_JSON() is required because iceberg stores VARIANT as a
-            # string-encoded JSON literal, not a parsed object.
-            row = (
-                driver.snowflake_conn.cursor()
-                .execute(
-                    f"SELECT "
-                    f"  PARSE_JSON(RECORD_CONTENT):id::NUMBER, "
-                    f"  PARSE_JSON(RECORD_CONTENT):body_temperature::FLOAT, "
-                    f"  PARSE_JSON(RECORD_CONTENT):name::STRING, "
-                    f"  PARSE_JSON(RECORD_METADATA):offset::NUMBER, "
-                    f"  PARSE_JSON(RECORD_METADATA):partition::NUMBER, "
-                    f"  PARSE_JSON(RECORD_METADATA):topic::STRING, "
-                    f"  PARSE_JSON(RECORD_METADATA):SnowflakeConnectorPushTime::STRING "
-                    f"FROM {quote_name(table_name)} "
-                    f"ORDER BY PARSE_JSON(RECORD_METADATA):offset::NUMBER "
-                    f"LIMIT 1"
-                )
-                .fetchone()
-            )
-            assert row is not None, "Expected at least one row in the iceberg table"
-            assert row[0] == 1, f"Expected id=1, got {row[0]}"
-            assert abs(float(row[1]) - 36.6) < 0.01, f"Expected body_temperature≈36.6, got {row[1]}"
-            assert row[2] == "Steve", f"Expected name='Steve', got {row[2]}"
-            assert row[3] == 0, f"Expected offset=0, got {row[3]}"
-            assert row[4] == 0, f"Expected partition=0, got {row[4]}"
-            assert row[5] == topic, f"Expected topic={topic!r}, got {row[5]!r}"
-            assert row[6] is not None, "Expected SnowflakeConnectorPushTime to be set"
-        else:
-            # Schematization=on: connector maps top-level JSON keys to pre-declared
-            # typed columns.  Typed columns (ID, BODY_TEMPERATURE, NAME) are accessed
-            # directly.  RECORD_METADATA is still VARIANT so needs PARSE_JSON().
-            row = (
-                driver.snowflake_conn.cursor()
-                .execute(
-                    f'SELECT "ID", "BODY_TEMPERATURE", "NAME", '
-                    f"PARSE_JSON(RECORD_METADATA):offset::NUMBER, "
-                    f"PARSE_JSON(RECORD_METADATA):partition::NUMBER, "
-                    f"PARSE_JSON(RECORD_METADATA):topic::STRING, "
-                    f"PARSE_JSON(RECORD_METADATA):SnowflakeConnectorPushTime::STRING "
-                    f"FROM {quote_name(table_name)} "
-                    f"ORDER BY PARSE_JSON(RECORD_METADATA):offset::NUMBER "
-                    f"LIMIT 1"
-                )
-                .fetchone()
-            )
-            assert row is not None, "Expected at least one row"
-            assert row[0] == 1, f"Expected id=1, got {row[0]}"
-            assert abs(float(row[1]) - 36.6) < 0.01, f"Expected body_temperature≈36.6, got {row[1]}"
-            assert row[2] == "Steve", f"Expected name='Steve', got {row[2]}"
-            assert row[3] == 0, f"Expected offset=0, got {row[3]}"
-            assert row[4] == 0, f"Expected partition=0, got {row[4]}"
-            assert row[5] == topic, f"Expected topic={topic!r}, got {row[5]!r}"
-            assert row[6] is not None, "Expected SnowflakeConnectorPushTime to be set"
+    records = [
+        json.dumps(_SAMPLE_MESSAGE).encode("utf-8") for _ in range(RECORD_COUNT)
+    ]
+    driver.sendBytesData(topic, records, partition=0)
 
-    finally:
-        _drop_iceberg_table(driver, table_name)
-        driver.deleteTopic(topic)
+    wait_for_rows(table.name, RECORD_COUNT)
+
+    if not schematization:
+        # Bag-of-bits: full JSON payload is in RECORD_CONTENT VARIANT.
+        # PARSE_JSON() is required because iceberg stores VARIANT as a
+        # string-encoded JSON literal, not a parsed object.
+        rows = table.select(
+            "PARSE_JSON(RECORD_CONTENT):id::NUMBER            AS ID, "
+            "PARSE_JSON(RECORD_CONTENT):body_temperature::FLOAT AS BODY_TEMPERATURE, "
+            "PARSE_JSON(RECORD_CONTENT):name::STRING           AS NAME, "
+            "PARSE_JSON(RECORD_METADATA):offset::NUMBER        AS OFFSET, "
+            "PARSE_JSON(RECORD_METADATA):partition::NUMBER     AS PARTITION, "
+            "PARSE_JSON(RECORD_METADATA):topic::STRING         AS TOPIC, "
+            "PARSE_JSON(RECORD_METADATA):SnowflakeConnectorPushTime::STRING AS PUSH_TIME",
+            "ORDER BY PARSE_JSON(RECORD_METADATA):offset::NUMBER LIMIT 1",
+        )
+        assert rows, "Expected at least one row in the iceberg table"
+        row = rows[0]
+        assert row["ID"] == 1, f"Expected id=1, got {row['ID']}"
+        assert abs(float(row["BODY_TEMPERATURE"]) - 36.6) < 0.01, (
+            f"Expected body_temperature≈36.6, got {row['BODY_TEMPERATURE']}"
+        )
+        assert row["NAME"] == "Steve", f"Expected name='Steve', got {row['NAME']}"
+        assert row["OFFSET"] == 0, f"Expected offset=0, got {row['OFFSET']}"
+        assert row["PARTITION"] == 0, f"Expected partition=0, got {row['PARTITION']}"
+        assert row["TOPIC"] == topic, f"Expected topic={topic!r}, got {row['TOPIC']!r}"
+        assert row["PUSH_TIME"] is not None, "Expected SnowflakeConnectorPushTime to be set"
+    else:
+        # Schematization=on: connector maps top-level JSON keys to pre-declared
+        # typed columns.  Typed columns (ID, BODY_TEMPERATURE, NAME) are accessed
+        # directly.  RECORD_METADATA is still VARIANT so needs PARSE_JSON().
+        rows = table.select(
+            '"ID", "BODY_TEMPERATURE", "NAME", '
+            "PARSE_JSON(RECORD_METADATA):offset::NUMBER        AS OFFSET, "
+            "PARSE_JSON(RECORD_METADATA):partition::NUMBER     AS PARTITION, "
+            "PARSE_JSON(RECORD_METADATA):topic::STRING         AS TOPIC, "
+            "PARSE_JSON(RECORD_METADATA):SnowflakeConnectorPushTime::STRING AS PUSH_TIME",
+            "ORDER BY PARSE_JSON(RECORD_METADATA):offset::NUMBER LIMIT 1",
+        )
+        assert rows, "Expected at least one row"
+        row = rows[0]
+        assert row["ID"] == 1, f"Expected id=1, got {row['ID']}"
+        assert abs(float(row["BODY_TEMPERATURE"]) - 36.6) < 0.01, (
+            f"Expected body_temperature≈36.6, got {row['BODY_TEMPERATURE']}"
+        )
+        assert row["NAME"] == "Steve", f"Expected name='Steve', got {row['NAME']}"
+        assert row["OFFSET"] == 0, f"Expected offset=0, got {row['OFFSET']}"
+        assert row["PARTITION"] == 0, f"Expected partition=0, got {row['PARTITION']}"
+        assert row["TOPIC"] == topic, f"Expected topic={topic!r}, got {row['TOPIC']!r}"
+        assert row["PUSH_TIME"] is not None, "Expected SnowflakeConnectorPushTime to be set"
 
 
 @pytest.mark.parametrize("connector_version", ["v4"], indirect=True)
 def test_iceberg_se_add_column(
     driver: KafkaDriver,
-    name_salt: str,
+    create_iceberg_table,
+    create_topics,
     create_connector,
     wait_for_rows,
 ):
@@ -304,77 +187,60 @@ def test_iceberg_se_add_column(
     column additions.  Server-side SE (validation=false) does not support typed
     column additions on iceberg tables.
     """
-    table_name = f"iceberg_se_addcol{name_salt}".upper()
-    topic = table_name
+    base_name = "iceberg_se_addcol"
+    table = create_iceberg_table(
+        base_name.upper(),
+        columns="(RECORD_METADATA VARIANT, CITY TEXT) ENABLE_SCHEMA_EVOLUTION = TRUE",
+        cleanup_topic=False,
+    )
+    topic = create_topics([base_name], with_tables=False)[0]
 
-    _create_iceberg_se_base_table(driver, table_name, extra_cols="CITY TEXT")
-    driver.createTopics(topic, partitionNum=1, replicationNum=1)
+    create_connector(
+        v4_config=_base_connector_config(topic, schematization=True, validation=True)
+    )
+    driver.startConnectorWaitTime()
 
-    try:
-        create_connector(
-            v4_config=_base_connector_config(topic, schematization=True, validation=True)
-        )
-        driver.startConnectorWaitTime()
+    wave1_count = 100
+    driver.sendBytesData(
+        topic,
+        [json.dumps({"city": "Hsinchu", "age": i}).encode("utf-8") for i in range(wave1_count)],
+        partition=0,
+    )
+    wait_for_rows(table.name, wave1_count)
 
-        wave1_count = 100
-        wave1 = [
-            json.dumps({"city": "Hsinchu", "age": i}).encode("utf-8")
-            for i in range(wave1_count)
-        ]
-        driver.sendBytesData(topic, wave1, partition=0)
-        wait_for_rows(table_name, wave1_count)
+    # Verify connector SE added AGE column
+    cols = {row[0] for row in table.schema()}
+    assert "AGE" in cols, (
+        f"Expected connector SE to add AGE column after wave 1, got: {cols}"
+    )
 
-        # Verify connector SE added AGE column
-        cols_after_wave1 = {
-            row[0]
-            for row in driver.snowflake_conn.cursor()
-            .execute(f"DESC TABLE {quote_name(table_name)}")
-            .fetchall()
-        }
-        assert "AGE" in cols_after_wave1, (
-            f"Expected connector SE to add AGE column after wave 1, got: {cols_after_wave1}"
-        )
-
-        wave2_count = 50
-        wave2 = [
+    wave2_count = 50
+    driver.sendBytesData(
+        topic,
+        [
             json.dumps({"city": "Taipei", "age": 100 + i, "country": "TW"}).encode("utf-8")
             for i in range(wave2_count)
-        ]
-        driver.sendBytesData(topic, wave2, partition=0)
-        wait_for_rows(table_name, wave1_count + wave2_count)
+        ],
+        partition=0,
+    )
+    wait_for_rows(table.name, wave1_count + wave2_count)
 
-        rows = (
-            driver.snowflake_conn.cursor()
-            .execute(
-                f'SELECT "CITY", "COUNTRY" FROM {quote_name(table_name)} '
-                f"WHERE \"CITY\" = 'Taipei' LIMIT 1"
-            )
-            .fetchall()
-        )
-        assert rows, "Expected at least one wave-2 row with CITY = 'Taipei'"
-        assert rows[0][0] == "Taipei"
-        assert rows[0][1] == "TW", f"Expected COUNTRY='TW', got {rows[0][1]!r}"
+    rows = table.select('"CITY", "COUNTRY"', "WHERE \"CITY\" = 'Taipei' LIMIT 1")
+    assert rows, "Expected at least one wave-2 row with CITY = 'Taipei'"
+    assert rows[0]["CITY"] == "Taipei"
+    assert rows[0]["COUNTRY"] == "TW", f"Expected COUNTRY='TW', got {rows[0]['COUNTRY']!r}"
 
-        null_country_count = (
-            driver.snowflake_conn.cursor()
-            .execute(
-                f'SELECT COUNT(*) FROM {quote_name(table_name)} WHERE "COUNTRY" IS NULL'
-            )
-            .fetchone()[0]
-        )
-        assert null_country_count == wave1_count, (
-            f"Expected {wave1_count} rows with NULL COUNTRY, got {null_country_count}"
-        )
-
-    finally:
-        _drop_iceberg_table(driver, table_name)
-        driver.deleteTopic(topic)
+    null_country_count = table.select('COUNT(*) AS CNT', 'WHERE "COUNTRY" IS NULL')[0]["CNT"]
+    assert null_country_count == wave1_count, (
+        f"Expected {wave1_count} rows with NULL COUNTRY, got {null_country_count}"
+    )
 
 
 @pytest.mark.parametrize("connector_version", ["v4"], indirect=True)
 def test_iceberg_se_multi_wave(
     driver: KafkaDriver,
-    name_salt: str,
+    create_iceberg_table,
+    create_topics,
     create_connector,
     wait_for_rows,
 ):
@@ -394,93 +260,73 @@ def test_iceberg_se_multi_wave(
       - Wave-2 rows: AGE set, COUNTRY IS NULL
       - Wave-3 rows: AGE set, COUNTRY set
     """
-    table_name = f"iceberg_se_multi{name_salt}".upper()
-    topic = table_name
+    base_name = "iceberg_se_multi"
+    table = create_iceberg_table(
+        base_name.upper(),
+        columns="(RECORD_METADATA VARIANT, CITY TEXT) ENABLE_SCHEMA_EVOLUTION = TRUE",
+        cleanup_topic=False,
+    )
+    topic = create_topics([base_name], with_tables=False)[0]
 
-    _create_iceberg_se_base_table(driver, table_name, extra_cols="CITY TEXT")
-    driver.createTopics(topic, partitionNum=1, replicationNum=1)
+    create_connector(
+        v4_config=_base_connector_config(topic, schematization=True, validation=True)
+    )
+    driver.startConnectorWaitTime()
 
-    try:
-        create_connector(
-            v4_config=_base_connector_config(topic, schematization=True, validation=True)
-        )
-        driver.startConnectorWaitTime()
+    wave1_count = 50
+    driver.sendBytesData(
+        topic,
+        [json.dumps({"city": "Taipei"}).encode("utf-8") for _ in range(wave1_count)],
+        partition=0,
+    )
+    wait_for_rows(table.name, wave1_count)
 
-        wave1_count = 50
-        driver.sendBytesData(
-            topic,
-            [json.dumps({"city": "Taipei"}).encode("utf-8") for _ in range(wave1_count)],
-            partition=0,
-        )
-        wait_for_rows(table_name, wave1_count)
+    wave2_count = 50
+    driver.sendBytesData(
+        topic,
+        [
+            json.dumps({"city": "Hsinchu", "age": i}).encode("utf-8")
+            for i in range(wave2_count)
+        ],
+        partition=0,
+    )
+    wait_for_rows(table.name, wave1_count + wave2_count)
 
-        wave2_count = 50
-        driver.sendBytesData(
-            topic,
-            [
-                json.dumps({"city": "Hsinchu", "age": i}).encode("utf-8")
-                for i in range(wave2_count)
-            ],
-            partition=0,
-        )
-        wait_for_rows(table_name, wave1_count + wave2_count)
+    wave3_count = 50
+    driver.sendBytesData(
+        topic,
+        [
+            json.dumps({"city": "Kaohsiung", "age": 200 + i, "country": "TW"}).encode("utf-8")
+            for i in range(wave3_count)
+        ],
+        partition=0,
+    )
+    wait_for_rows(table.name, wave1_count + wave2_count + wave3_count)
 
-        wave3_count = 50
-        driver.sendBytesData(
-            topic,
-            [
-                json.dumps({"city": "Kaohsiung", "age": 200 + i, "country": "TW"}).encode(
-                    "utf-8"
-                )
-                for i in range(wave3_count)
-            ],
-            partition=0,
-        )
-        total = wave1_count + wave2_count + wave3_count
-        wait_for_rows(table_name, total)
+    # Wave-1: AGE and COUNTRY both NULL
+    w1_null = table.select(
+        'COUNT(*) AS CNT',
+        "WHERE \"CITY\" = 'Taipei' AND \"AGE\" IS NULL AND \"COUNTRY\" IS NULL",
+    )[0]["CNT"]
+    assert w1_null == wave1_count, (
+        f"Expected {wave1_count} wave-1 rows with NULL AGE+COUNTRY, got {w1_null}"
+    )
 
-        # Wave-1: AGE and COUNTRY both NULL
-        w1_null = (
-            driver.snowflake_conn.cursor()
-            .execute(
-                f'SELECT COUNT(*) FROM {quote_name(table_name)} '
-                f"WHERE \"CITY\" = 'Taipei' AND \"AGE\" IS NULL AND \"COUNTRY\" IS NULL"
-            )
-            .fetchone()[0]
-        )
-        assert w1_null == wave1_count, (
-            f"Expected {wave1_count} wave-1 rows with NULL AGE+COUNTRY, got {w1_null}"
-        )
+    # Wave-2: CITY='Hsinchu', AGE set, COUNTRY NULL
+    w2_rows = table.select('"AGE", "COUNTRY"', "WHERE \"CITY\" = 'Hsinchu' LIMIT 1")
+    assert w2_rows, "Expected at least one wave-2 row"
+    assert w2_rows[0]["AGE"] is not None, "Expected AGE set for wave-2 rows"
+    assert w2_rows[0]["COUNTRY"] is None, (
+        f"Expected COUNTRY NULL for wave-2 rows, got {w2_rows[0]['COUNTRY']!r}"
+    )
 
-        # Wave-2: CITY='Hsinchu', AGE set, COUNTRY NULL
-        w2_row = (
-            driver.snowflake_conn.cursor()
-            .execute(
-                f'SELECT "AGE", "COUNTRY" FROM {quote_name(table_name)} '
-                f"WHERE \"CITY\" = 'Hsinchu' LIMIT 1"
-            )
-            .fetchone()
-        )
-        assert w2_row is not None, "Expected at least one wave-2 row"
-        assert w2_row[0] is not None, "Expected AGE set for wave-2 rows"
-        assert w2_row[1] is None, f"Expected COUNTRY NULL for wave-2 rows, got {w2_row[1]!r}"
-
-        # Wave-3: CITY='Kaohsiung', AGE set, COUNTRY='TW'
-        w3_row = (
-            driver.snowflake_conn.cursor()
-            .execute(
-                f'SELECT "AGE", "COUNTRY" FROM {quote_name(table_name)} '
-                f"WHERE \"CITY\" = 'Kaohsiung' LIMIT 1"
-            )
-            .fetchone()
-        )
-        assert w3_row is not None, "Expected at least one wave-3 row"
-        assert w3_row[0] is not None, "Expected AGE set for wave-3 rows"
-        assert w3_row[1] == "TW", f"Expected COUNTRY='TW', got {w3_row[1]!r}"
-
-    finally:
-        _drop_iceberg_table(driver, table_name)
-        driver.deleteTopic(topic)
+    # Wave-3: CITY='Kaohsiung', AGE set, COUNTRY='TW'
+    w3_rows = table.select('"AGE", "COUNTRY"', "WHERE \"CITY\" = 'Kaohsiung' LIMIT 1")
+    assert w3_rows, "Expected at least one wave-3 row"
+    assert w3_rows[0]["AGE"] is not None, "Expected AGE set for wave-3 rows"
+    assert w3_rows[0]["COUNTRY"] == "TW", (
+        f"Expected COUNTRY='TW', got {w3_rows[0]['COUNTRY']!r}"
+    )
 
 
 @pytest.mark.xfail(
@@ -498,6 +344,8 @@ def test_iceberg_se_multi_wave(
 def test_iceberg_se_json(
     driver: KafkaDriver,
     name_salt: str,
+    create_iceberg_table,
+    create_topics,
     create_connector,
     wait_for_rows,
 ):
@@ -521,89 +369,63 @@ def test_iceberg_se_json(
     After both waves, verifies that all three columns exist and that wave-1 rows
     have NULL for COUNTRY.
     """
-    table_name = f"iceberg_se_json{name_salt}".upper()
-    topic = table_name
+    base_name = "iceberg_se_json"
+    table = create_iceberg_table(
+        base_name.upper(),
+        columns="(RECORD_METADATA VARIANT) ENABLE_SCHEMA_EVOLUTION = TRUE",
+        cleanup_topic=False,
+    )
+    topic = create_topics([base_name], with_tables=False)[0]
 
-    _create_iceberg_se_table(driver, table_name)
-    driver.createTopics(topic, partitionNum=1, replicationNum=1)
-
-    try:
-        create_connector(
-            v4_config={
-                # validation=False: avoids "Structured OBJECT types not supported
-                # by Snowpipe Streaming" error from initializeValidation(), which
-                # would disable the row validator and prevent client-side SE.
-                # Server-side SE (ENABLE_SCHEMA_EVOLUTION on the table) handles
-                # column additions instead.
-                **_base_connector_config(topic, schematization=True, validation=False),
-                "errors.tolerance": "all",
-                "errors.log.enable": "true",
-                "errors.deadletterqueue.topic.name": f"DLQ_iceberg_se{name_salt}",
-                "errors.deadletterqueue.topic.replication.factor": "1",
-            }
-        )
-        driver.startConnectorWaitTime()
-
-        wave1_count = 100
-        wave1 = [
-            json.dumps({"city": "Hsinchu", "age": i}).encode("utf-8")
-            for i in range(wave1_count)
-        ]
-        driver.sendBytesData(topic, wave1, partition=0)
-
-        wait_for_rows(table_name, wave1_count)
-
-        wave2_count = 50
-        wave2 = [
-            json.dumps({"city": "Taipei", "age": 100 + i, "country": "TW"}).encode(
-                "utf-8"
-            )
-            for i in range(wave2_count)
-        ]
-        driver.sendBytesData(topic, wave2, partition=0)
-
-        total = wave1_count + wave2_count
-        wait_for_rows(table_name, total)
-
-        # Verify schema: all three columns must have been added
-        cols = {
-            row[0]: row[1]
-            for row in driver.snowflake_conn.cursor()
-            .execute(f"DESC TABLE {quote_name(table_name)}")
-            .fetchall()
+    create_connector(
+        v4_config={
+            # validation=False: avoids "Structured OBJECT types not supported
+            # by Snowpipe Streaming" error from initializeValidation(), which
+            # would disable the row validator and prevent client-side SE.
+            # Server-side SE (ENABLE_SCHEMA_EVOLUTION on the table) handles
+            # column additions instead.
+            **_base_connector_config(topic, schematization=True, validation=False),
+            "errors.tolerance": "all",
+            "errors.log.enable": "true",
+            "errors.deadletterqueue.topic.name": f"DLQ_iceberg_se{name_salt}",
+            "errors.deadletterqueue.topic.replication.factor": "1",
         }
-        assert "CITY" in cols, f"Expected CITY column, got: {list(cols.keys())}"
-        assert "AGE" in cols, f"Expected AGE column, got: {list(cols.keys())}"
-        assert "COUNTRY" in cols, (
-            f"Expected COUNTRY column after wave 2, got: {list(cols.keys())}"
-        )
+    )
+    driver.startConnectorWaitTime()
 
-        # Wave-2 rows must have correct CITY and COUNTRY values
-        rows = (
-            driver.snowflake_conn.cursor()
-            .execute(
-                f'SELECT "CITY", "AGE", "COUNTRY" '
-                f"FROM {quote_name(table_name)} "
-                f'WHERE "CITY" = \'Taipei\' LIMIT 1'
-            )
-            .fetchall()
-        )
-        assert rows, "Expected at least one wave-2 row with CITY = 'Taipei'"
-        assert rows[0][0] == "Taipei"
-        assert rows[0][2] == "TW"
+    wave1_count = 100
+    driver.sendBytesData(
+        topic,
+        [json.dumps({"city": "Hsinchu", "age": i}).encode("utf-8") for i in range(wave1_count)],
+        partition=0,
+    )
+    wait_for_rows(table.name, wave1_count)
 
-        # Wave-1 rows must have NULL COUNTRY
-        null_country_count = (
-            driver.snowflake_conn.cursor()
-            .execute(
-                f"SELECT count(*) FROM {quote_name(table_name)} WHERE COUNTRY IS NULL"
-            )
-            .fetchone()[0]
-        )
-        assert null_country_count == wave1_count, (
-            f"Expected {wave1_count} rows with NULL COUNTRY, got {null_country_count}"
-        )
+    wave2_count = 50
+    driver.sendBytesData(
+        topic,
+        [
+            json.dumps({"city": "Taipei", "age": 100 + i, "country": "TW"}).encode("utf-8")
+            for i in range(wave2_count)
+        ],
+        partition=0,
+    )
+    wait_for_rows(table.name, wave1_count + wave2_count)
 
-    finally:
-        _drop_iceberg_table(driver, table_name)
-        driver.deleteTopic(topic)
+    # Verify schema: all three columns must have been added
+    cols = {row[0]: row[1] for row in table.schema()}
+    assert "CITY" in cols, f"Expected CITY column, got: {list(cols.keys())}"
+    assert "AGE" in cols, f"Expected AGE column, got: {list(cols.keys())}"
+    assert "COUNTRY" in cols, f"Expected COUNTRY column after wave 2, got: {list(cols.keys())}"
+
+    # Wave-2 rows must have correct CITY and COUNTRY values
+    rows = table.select('"CITY", "AGE", "COUNTRY"', "WHERE \"CITY\" = 'Taipei' LIMIT 1")
+    assert rows, "Expected at least one wave-2 row with CITY = 'Taipei'"
+    assert rows[0]["CITY"] == "Taipei"
+    assert rows[0]["COUNTRY"] == "TW"
+
+    # Wave-1 rows must have NULL COUNTRY
+    null_country_count = table.select('COUNT(*) AS CNT', 'WHERE "COUNTRY" IS NULL')[0]["CNT"]
+    assert null_country_count == wave1_count, (
+        f"Expected {wave1_count} rows with NULL COUNTRY, got {null_country_count}"
+    )
