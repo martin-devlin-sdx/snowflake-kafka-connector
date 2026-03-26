@@ -610,12 +610,16 @@ class KafkaDriver:
         )
 
         # Allow the Snowpipe Streaming SDK's URL to be overridden for testing
-        # against a local proxy. The value is quoted so the colon-delimited
-        # parser handles the URL's embedded colons correctly.
+        # against a local proxy. We pass scheme, host, and port as separate
+        # keys so the override map works with both v3 and v4 connectors
+        # (v3's parser doesn't support quoted values containing colons).
         if snowpipe_streaming_url := os.environ.get("SNOWPIPE_STREAMING_URL"):
+            from urllib.parse import urlparse
+
+            parsed = urlparse(snowpipe_streaming_url)
             rest_request["config"][
                 "snowflake.streaming.client.provider.override.map"
-            ] = f'url:"{snowpipe_streaming_url}"'
+            ] = f"scheme:{parsed.scheme},host:{parsed.hostname},port:{parsed.port}"
 
         MAX_RETRY = 9
         retry = 0

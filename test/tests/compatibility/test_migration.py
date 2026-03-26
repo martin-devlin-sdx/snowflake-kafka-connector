@@ -233,3 +233,96 @@ def test_migration_with_ingestion(
         assert total_rows > expected, (
             f"Expected duplicates (total > {expected}), but got {total_rows}"
         )
+
+
+# Don't parameterize on v3, we create both connector versions explicitly here.
+@pytest.mark.parametrize("connector_version", ["v4"], indirect=True)
+def test_migration_system_function(
+    driver: KafkaDriver,
+    name_salt,
+    create_custom_connector,
+    create_table,
+    wait_for_rows,
+):
+    """Prove that SYSTEM$MIGRATE_SSV1_CHANNEL_OFFSET migrates offsets server-side.
+
+    Uses a *different* connector name for v4 so there is no consumer group inheritance.
+    With auto.offset.reset=earliest, Kafka re-delivers all records from offset 0.
+    Without the system function, v4 would re-ingest everything → duplicates.
+    With ssv1_offset_migration=migrate, the system function writes the SSv1 offset
+    to the SSv2 channel, so v4 skips already-committed records → no duplicates.
+    """
+
+    test_name = "TEST_MIGRATION_SYSTEM_FUNCTION"  # TODO: make lowercase and fix compatibility settings
+
+    table = create_table(
+        test_name, columns='(record_metadata variant, "NUMBER" varchar)'
+    )
+    topic = f"{test_name}{name_salt}"
+
+    producer = RecordProducer(driver, topic)
+
+    v3_config_template = {
+        **V3_CONFIG_TEMPLATE,
+        "topics": topic,
+        "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+        "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+        "value.converter.schemas.enable": "false",
+        "snowflake.enable.schematization": "true",
+    }
+
+    # Phase 1: v3 ingests records via SSv1
+    logging.info("Creating v3 connector and sending initial batch")
+    v3_connector = create_custom_connector(test_name, v3_config_template)
+    producer.send(20)
+    logging.info(f"Produced 20 records (total: {producer.records_produced})")
+    wait_for_rows(
+        table_name=table.name,
+        expected=producer.records_produced,
+        connector_name=v3_connector.name,
+    )
+    logging.info("Closing v3 connector")
+    assert v3_connector.close(wait_timeout=60)
+
+    v3_rows = table.select_scalar("count(*)")
+    logging.info(f"v3 ingested {v3_rows} rows, now closed")
+
+    # Phase 2: v4 with a DIFFERENT connector name → no consumer group inheritance.
+    # auto.offset.reset=earliest forces Kafka to re-deliver from offset 0.
+    # The system function is the only mechanism that prevents re-ingestion.
+    v4_name = f"{test_name}_v4"
+    v4_config_template = {
+        **v3_config_to_v4(v3_config_template),
+        "snowflake.streaming.ssv1.offset.migration": "migrate",
+        "consumer.override.auto.offset.reset": "earliest",
+    }
+    logging.info(
+        f"Creating v4 connector with different name ({v4_name}) and migrate mode"
+    )
+    v4_connector = create_custom_connector(v4_name, v4_config_template)
+
+    # Phase 3: Send more records and verify no duplicates
+    producer.send(10)
+    expected = producer.records_produced
+    logging.info(f"Produced 10 more records (total: {expected})")
+
+    wait_for_rows(
+        table_name=table.name,
+        expected=expected,
+        connector_name=v4_connector.name,
+    )
+
+    total_rows = table.select_scalar("count(*)")
+    distinct_offsets = table.select_scalar("count(distinct record_metadata:offset)")
+    logging.info(
+        f"Final: {expected} expected, {distinct_offsets} distinct offsets, "
+        f"{total_rows} total rows"
+    )
+
+    assert distinct_offsets == expected, (
+        f"Expected {expected} distinct offsets, got {distinct_offsets}"
+    )
+    assert total_rows == expected, (
+        f"System function migration should prevent duplicates: "
+        f"expected {expected} rows, got {total_rows}"
+    )
