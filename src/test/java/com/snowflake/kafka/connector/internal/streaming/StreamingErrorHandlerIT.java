@@ -316,7 +316,6 @@ class StreamingErrorHandlerIT {
         false,
         null,
         Ssv1MigrationMode.SKIP,
-        null,
         null);
   }
 }

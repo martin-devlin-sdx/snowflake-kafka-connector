@@ -2,6 +2,7 @@ package com.snowflake.kafka.connector.internal;
 
 import static com.snowflake.kafka.connector.Utils.TABLE_COLUMN_METADATA;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.snowflake.kafka.connector.internal.schemaevolution.ColumnInfos;
 import com.snowflake.kafka.connector.internal.telemetry.SnowflakeTelemetryService;
@@ -15,6 +16,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Properties;
 import net.snowflake.client.api.driver.SnowflakeDriver;
 
@@ -410,6 +412,65 @@ public class StandardSnowflakeConnectionService implements SnowflakeConnectionSe
           tableName,
           e.getMessage());
       throw SnowflakeErrors.ERROR_2015.getException(e);
+    }
+  }
+
+  @Override
+  public OptionalLong migrateSsv1ChannelOffset(
+      String tableName, String ssv1ChannelName, String ssv2ChannelName, String pipeName) {
+    checkConnection();
+    LOGGER.info(
+        "Calling SYSTEM$MIGRATE_SSV1_CHANNEL_OFFSET for table={}, ssv1Channel={}, "
+            + "ssv2Channel={}, pipe={}",
+        tableName,
+        ssv1ChannelName,
+        ssv2ChannelName,
+        pipeName);
+
+    String query = "SELECT SYSTEM$MIGRATE_SSV1_CHANNEL_OFFSET(?, ?, ?, ?)";
+    try (PreparedStatement stmt = conn.prepareStatement(query)) {
+      stmt.setString(1, tableName);
+      stmt.setString(2, ssv1ChannelName);
+      stmt.setString(3, ssv2ChannelName);
+      stmt.setString(4, pipeName);
+      ResultSet rs = stmt.executeQuery();
+      if (!rs.next()) {
+        throw new RuntimeException(
+            "SYSTEM$MIGRATE_SSV1_CHANNEL_OFFSET returned no result for table " + tableName);
+      }
+      String jsonResponse = rs.getString(1);
+      return parseMigrationResponse(jsonResponse, ssv1ChannelName);
+    } catch (SQLException e) {
+      throw new RuntimeException(
+          "SYSTEM$MIGRATE_SSV1_CHANNEL_OFFSET failed for ssv1Channel="
+              + ssv1ChannelName
+              + ", ssv2Channel="
+              + ssv2ChannelName,
+          e);
+    }
+  }
+
+  private OptionalLong parseMigrationResponse(String jsonResponse, String ssv1ChannelName) {
+    try {
+      JsonNode root = OBJECT_MAPPER.readTree(jsonResponse);
+      boolean ssv1ChannelFound = root.path("ssv1_channel_found").asBoolean(false);
+      if (!ssv1ChannelFound) {
+        LOGGER.info("SSv1 channel {} not found, no offset to migrate", ssv1ChannelName);
+        return OptionalLong.empty();
+      }
+      JsonNode offsetNode = root.path("migrated_offset");
+      if (offsetNode.isNull() || offsetNode.isMissingNode()) {
+        LOGGER.info("SSv1 channel {} found but has no committed offset", ssv1ChannelName);
+        return OptionalLong.empty();
+      }
+      long offset = Long.parseLong(offsetNode.asText());
+      LOGGER.info("SSv1 channel {} offset {} migrated to SSv2 channel", ssv1ChannelName, offset);
+      return OptionalLong.of(offset);
+    } catch (Exception e) {
+      throw new RuntimeException(
+          "Failed to parse SYSTEM$MIGRATE_SSV1_CHANNEL_OFFSET response for channel "
+              + ssv1ChannelName,
+          e);
     }
   }
 

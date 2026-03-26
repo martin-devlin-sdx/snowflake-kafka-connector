@@ -25,7 +25,6 @@ import com.snowflake.kafka.connector.internal.streaming.telemetry.SnowflakeTelem
 import com.snowflake.kafka.connector.internal.streaming.telemetry.SnowflakeTelemetryChannelStatus;
 import com.snowflake.kafka.connector.internal.streaming.v2.channel.PartitionOffsetTracker;
 import com.snowflake.kafka.connector.internal.streaming.v2.migration.Ssv1MigrationMode;
-import com.snowflake.kafka.connector.internal.streaming.v2.migration.Ssv1OffsetReader;
 import com.snowflake.kafka.connector.internal.telemetry.SnowflakeTelemetryService;
 import com.snowflake.kafka.connector.internal.validation.ColumnSchema;
 import com.snowflake.kafka.connector.internal.validation.RowValidator;
@@ -88,7 +87,6 @@ public class SnowpipeStreamingPartitionChannel implements TopicPartitionChannel 
 
   // SSv1 offset migration
   private final Ssv1MigrationMode ssv1MigrationMode;
-  private final Ssv1OffsetReader ssv1OffsetReader;
   private final String ssv1ChannelName;
 
   // Client-side validation fields
@@ -118,7 +116,6 @@ public class SnowpipeStreamingPartitionChannel implements TopicPartitionChannel 
       boolean shouldEvolveSchema,
       SnowflakeConnectionService conn,
       Ssv1MigrationMode ssv1MigrationMode,
-      Ssv1OffsetReader ssv1OffsetReader,
       String ssv1ChannelName) {
     this.channelName = channelName;
     this.pipeName = pipeName;
@@ -137,7 +134,6 @@ public class SnowpipeStreamingPartitionChannel implements TopicPartitionChannel 
     this.conn = conn;
     this.tableName = tableName;
     this.ssv1MigrationMode = ssv1MigrationMode;
-    this.ssv1OffsetReader = ssv1OffsetReader;
     this.ssv1ChannelName = ssv1ChannelName;
 
     LOGGER.info(
@@ -161,15 +157,15 @@ public class SnowpipeStreamingPartitionChannel implements TopicPartitionChannel 
               // Once SSv2 has its own offset, it is authoritative.
               if (ssv2Offset == NO_OFFSET_TOKEN_REGISTERED_IN_SNOWFLAKE
                   && ssv1MigrationMode != Ssv1MigrationMode.SKIP
-                  && ssv1OffsetReader != null) {
-                // readCommittedOffset returns empty for "channel doesn't exist" (safe to proceed),
-                // returns a value for "channel has committed data" (use it or fail),
-                // and THROWS for transient/unexpected errors (must not silently proceed --
-                // falling through to consumer group offset could cause duplicates).
-                // Use SSv1 channel name format ({topic}_{partition}), not the SSv2
-                // format ({connectorName}_{topic}_{partition}).
+                  && conn != null) {
+                // migrateSsv1ChannelOffset calls SYSTEM$MIGRATE_SSV1_CHANNEL_OFFSET which:
+                //   - returns empty if SSv1 channel doesn't exist (safe to proceed)
+                //   - returns the migrated offset and writes it to the SSv2 channel in FDB
+                //   - THROWS for SQL/network errors (must not silently proceed --
+                //     falling through to consumer group offset could cause duplicates)
                 OptionalLong ssv1Offset =
-                    ssv1OffsetReader.readCommittedOffset(tableName, ssv1ChannelName);
+                    conn.migrateSsv1ChannelOffset(
+                        tableName, ssv1ChannelName, channelName, pipeName);
                 if (ssv1Offset.isPresent()) {
                   LOGGER.info(
                       "SSv1 offset for {}: {}, SSv2 has no offset yet",

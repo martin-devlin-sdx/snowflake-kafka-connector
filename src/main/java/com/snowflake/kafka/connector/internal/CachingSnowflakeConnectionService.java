@@ -11,6 +11,7 @@ import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -210,6 +211,12 @@ public class CachingSnowflakeConnectionService implements SnowflakeConnectionSer
   @Override
   public boolean shouldEvolveSchema(String tableName, String role) {
     return delegate.shouldEvolveSchema(tableName, role);
+  }
+
+  @Override
+  public OptionalLong migrateSsv1ChannelOffset(
+      String tableName, String ssv1ChannelName, String ssv2ChannelName, String pipeName) {
+    return delegate.migrateSsv1ChannelOffset(tableName, ssv1ChannelName, ssv2ChannelName, pipeName);
   }
 
   private void logStatsIfNeeded() {

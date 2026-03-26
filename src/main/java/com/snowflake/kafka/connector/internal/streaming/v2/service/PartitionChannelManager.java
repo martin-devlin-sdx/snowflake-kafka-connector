@@ -6,9 +6,7 @@ import com.snowflake.kafka.connector.Utils;
 import com.snowflake.kafka.connector.config.SinkTaskConfig;
 import com.snowflake.kafka.connector.dlq.KafkaRecordErrorReporter;
 import com.snowflake.kafka.connector.internal.KCLogger;
-import com.snowflake.kafka.connector.internal.PrivateKeyTool;
 import com.snowflake.kafka.connector.internal.SnowflakeConnectionService;
-import com.snowflake.kafka.connector.internal.SnowflakeURL;
 import com.snowflake.kafka.connector.internal.metrics.MetricsJmxReporter;
 import com.snowflake.kafka.connector.internal.metrics.TaskMetrics;
 import com.snowflake.kafka.connector.internal.streaming.StreamingClientProperties;
@@ -19,9 +17,7 @@ import com.snowflake.kafka.connector.internal.streaming.v2.SnowpipeStreamingPart
 import com.snowflake.kafka.connector.internal.streaming.v2.channel.PartitionOffsetTracker;
 import com.snowflake.kafka.connector.internal.streaming.v2.client.StreamingClientPools;
 import com.snowflake.kafka.connector.internal.streaming.v2.migration.Ssv1MigrationMode;
-import com.snowflake.kafka.connector.internal.streaming.v2.migration.Ssv1OffsetReader;
 import com.snowflake.kafka.connector.internal.telemetry.SnowflakeTelemetryService;
-import java.security.PrivateKey;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
@@ -29,7 +25,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import javax.annotation.Nullable;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.connect.sink.SinkTaskContext;
 
@@ -67,7 +62,6 @@ public class PartitionChannelManager {
   private final SnowflakeConnectionService conn;
 
   private final Ssv1MigrationMode ssv1MigrationMode;
-  @Nullable private final Ssv1OffsetReader ssv1OffsetReader;
 
   private final PartitionChannelBuilder partitionChannelBuilder;
   private final Map<String, TopicPartitionChannel> partitionChannels;
@@ -95,7 +89,6 @@ public class PartitionChannelManager {
     this.enableSanitization = taskConfig.isEnableSanitization();
     this.conn = conn;
     this.ssv1MigrationMode = taskConfig.getSsv1MigrationMode();
-    this.ssv1OffsetReader = createSsv1OffsetReader(taskConfig, ssv1MigrationMode);
     this.partitionChannelBuilder = this::buildChannel;
     this.partitionChannels = new ConcurrentHashMap<>();
   }
@@ -121,7 +114,6 @@ public class PartitionChannelManager {
     this.taskMetrics = null;
     this.conn = null;
     this.ssv1MigrationMode = Ssv1MigrationMode.SKIP;
-    this.ssv1OffsetReader = null;
   }
 
   /** Gets a unique identifier consisting of connector name, topic name and partition number. */
@@ -239,7 +231,6 @@ public class PartitionChannelManager {
         shouldEvolveSchema,
         this.conn,
         this.ssv1MigrationMode,
-        this.ssv1OffsetReader,
         ssv1ChannelName);
   }
 
@@ -314,35 +305,10 @@ public class PartitionChannelManager {
 
     partitionChannels.clear();
 
-    if (ssv1OffsetReader != null) {
-      ssv1OffsetReader.close();
-    }
-
     LOGGER.info(
         "Completed closing all partition channels for connector: {}, task: {}",
         this.connectorName,
         this.taskId);
-  }
-
-  @Nullable
-  private static Ssv1OffsetReader createSsv1OffsetReader(
-      SinkTaskConfig taskConfig, Ssv1MigrationMode mode) {
-    if (mode == Ssv1MigrationMode.SKIP) {
-      return null;
-    }
-
-    LOGGER.info("Creating Ssv1OffsetReader for migration mode {}", mode);
-    SnowflakeURL url = new SnowflakeURL(taskConfig.getSnowflakeUrl());
-    PrivateKey privateKey =
-        PrivateKeyTool.parsePrivateKey(
-            taskConfig.getSnowflakePrivateKey(), taskConfig.getSnowflakePrivateKeyPassphrase());
-    return new Ssv1OffsetReader(
-        url,
-        taskConfig.getSnowflakeUser(),
-        taskConfig.getSnowflakeRole(),
-        privateKey,
-        taskConfig.getSnowflakeDatabase(),
-        taskConfig.getSnowflakeSchema());
   }
 
   /**

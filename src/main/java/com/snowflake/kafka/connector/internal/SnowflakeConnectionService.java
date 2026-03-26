@@ -6,6 +6,7 @@ import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 public interface SnowflakeConnectionService {
   /**
@@ -122,4 +123,21 @@ public interface SnowflakeConnectionService {
    * @return whether schema evolution has the required permission to be performed
    */
   boolean shouldEvolveSchema(String tableName, String role);
+
+  /**
+   * Calls SYSTEM$MIGRATE_SSV1_CHANNEL_OFFSET to migrate the committed offset from an SSv1 channel
+   * to an SSv2 channel. The system function reads the SSv1 offset and writes it directly to the
+   * SSv2 channel in FDB.
+   *
+   * @param tableName unqualified table name (the JDBC session's database/schema are used)
+   * @param ssv1ChannelName SSv1 channel name ({topic}_{partition} or
+   *     {connectorName}_{topic}_{partition})
+   * @param ssv2ChannelName SSv2 channel name ({connectorName}_{topic}_{partition})
+   * @param pipeName SSv2 pipe name
+   * @return the migrated offset as a long, or empty if the SSv1 channel doesn't exist or has no
+   *     committed offset
+   * @throws RuntimeException if the system function call fails (SQL error, unexpected response)
+   */
+  OptionalLong migrateSsv1ChannelOffset(
+      String tableName, String ssv1ChannelName, String ssv2ChannelName, String pipeName);
 }
