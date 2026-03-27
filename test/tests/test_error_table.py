@@ -23,7 +23,7 @@ def _v4_ht_config(*, dlq_topic=None):
     base = json.loads((TEMPLATE_DIR / BASE_TEMPLATE).read_text())
     config = dict(base["config"])
     config["snowflake.enable.schematization"] = "true"
-    config["snowflake.client.validation.enabled"] = "false"
+    config["snowflake.validation"] = "server_side"
     if dlq_topic:
         config["errors.tolerance"] = "all"
         config["errors.deadletterqueue.topic.name"] = dlq_topic
