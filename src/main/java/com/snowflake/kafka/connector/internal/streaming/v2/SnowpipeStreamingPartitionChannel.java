@@ -476,7 +476,7 @@ public class SnowpipeStreamingPartitionChannel implements TopicPartitionChannel 
           kafkaRecord.kafkaOffset());
     }
 
-    if (!enableSchematization || !shouldEvolveSchema) {
+    if (!shouldEvolveSchema) {
       snowflakeTelemetryChannelStatus.incValidationFailureCount();
 
       String errorMsg =
@@ -512,10 +512,7 @@ public class SnowpipeStreamingPartitionChannel implements TopicPartitionChannel 
                 kafkaRecord.kafkaOffset());
         recordForEvolution =
             SnowflakeSinkRecord.from(
-                syntheticKafkaRecord,
-                metadataConfig,
-                true,
-                enableColumnIdentifierNormalization);
+                syntheticKafkaRecord, metadataConfig, true, enableColumnIdentifierNormalization);
       }
       schemaEvolutionService.evolveSchemaIfNeeded(items, recordForEvolution);
 
