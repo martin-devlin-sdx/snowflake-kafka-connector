@@ -10,7 +10,7 @@ per connector.
 In this fork we allow a single connector to support sending messages to different schemas for different topics.
 i.e. to have a dynamic topicName - -> schema mapping.
 
-To make it work, add this new configuration parameter to the connector configuration:
+To make it work, add this new optional configuration parameter to the connector configuration:
 ```properties
 snowflake.topicPrefix2schema.map=<topicPrefixName>:<schemaName>
 
@@ -30,6 +30,8 @@ snowflake.url.name=EEXPJWQ-UCB21633.snowflakecomputing.com:443
 ```
 Note that the key values in topicPrefix2schema are prefixes not regexes. These prefixes must not overlap (this is why 
 there is a trailing period in the example above as the schema names are very similar). 
+
+If 'snowflake.topicPrefix2schema.map' is missing the connector will behave just as before using 'snowflake.schema.name' for all mappings.
 
 Known limitations of this POC: 
 * upon startup the connector normally can automatically create a destination table if it doesn't already exist. That doesn't work reliably for tables in different schemas.
