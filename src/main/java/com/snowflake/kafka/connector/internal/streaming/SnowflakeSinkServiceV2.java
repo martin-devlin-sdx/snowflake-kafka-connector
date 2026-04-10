@@ -11,11 +11,9 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.snowflake.kafka.connector.SnowflakeSinkConnectorConfig;
 import com.snowflake.kafka.connector.Utils;
+import com.snowflake.kafka.connector.config.TopicMapping;
 import com.snowflake.kafka.connector.dlq.KafkaRecordErrorReporter;
-import com.snowflake.kafka.connector.internal.KCLogger;
-import com.snowflake.kafka.connector.internal.SnowflakeConnectionService;
-import com.snowflake.kafka.connector.internal.SnowflakeErrors;
-import com.snowflake.kafka.connector.internal.SnowflakeSinkService;
+import com.snowflake.kafka.connector.internal.*;
 import com.snowflake.kafka.connector.internal.metrics.MetricsJmxReporter;
 import com.snowflake.kafka.connector.internal.streaming.channel.TopicPartitionChannel;
 import com.snowflake.kafka.connector.internal.streaming.schemaevolution.InsertErrorMapper;
@@ -70,7 +68,7 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
 
   private SchemaEvolutionService schemaEvolutionService;
 
-  private Map<String, String> topicToTableMap;
+  private TopicMapping topicMapping;
 
   /**
    * If this map is null then we use the value of {@link Utils#SF_SCHEMA}
@@ -112,7 +110,10 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
    */
   private final Map<String, TopicPartitionChannel> partitionsToChannel;
 
-  // Cache for schema evolution
+  /**
+   * Cache for schema evolution. schemaAndTableName -> Boolean
+   * See {@link #getSchemaAndTableName(String, String)} for the key
+   */
   private final Map<String, Boolean> tableName2SchemaEvolutionPermission;
 
   // Set that keeps track of the channels that have been seen per input batch
@@ -124,14 +125,14 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
       KafkaRecordErrorReporter recordErrorReporter,
       SinkTaskContext sinkTaskContext,
       boolean enableCustomJMXMonitoring,
-      Map<String, String> topicToTableMap,
+      TopicMapping topicMapping,
       Map<String, String> topicPrefixToSchemaMap,
       SchemaEvolutionService schemaEvolutionService) {
     this(conn, connectorConfig);
     this.kafkaRecordErrorReporter = recordErrorReporter;
     this.sinkTaskContext = sinkTaskContext;
     this.enableCustomJMXMonitoring = enableCustomJMXMonitoring;
-    this.topicToTableMap = topicToTableMap;
+    this.topicMapping = topicMapping;
     this.schemaEvolutionService = schemaEvolutionService;
     this.topicPrefixToSchemaMap = topicPrefixToSchemaMap;
   }
@@ -143,7 +144,7 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
       throw SnowflakeErrors.ERROR_5010.getException();
     }
 
-    this.conn = conn;
+    this.conn = SchemaChecker.createProxy(conn); // check that we always include the schema when using the jdbc connection
     this.telemetryService = conn.getTelemetryClient();
     boolean schematizationEnabled = Utils.isSchematizationEnabled(connectorConfig);
     this.recordService =
@@ -155,8 +156,6 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
         Utils.isIcebergEnabled(connectorConfig)
             ? new IcebergSchemaEvolutionService(conn)
             : new SnowflakeSchemaEvolutionService(conn);
-
-    this.topicToTableMap = new HashMap<>();
 
     // Setting the default value in constructor
     // meaning it will not ignore the null values (Tombstone records wont be ignored/filtered)
@@ -198,20 +197,15 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
    */
   @Override
   public void startPartition(String tableName, TopicPartition topicPartition) {
-    // the table should be present before opening a channel so let's do a table existence check here
-    tableActionsOnStartPartition(tableName);
+    String schema = topicMapping.getSchema(topicPartition);
 
-    String schemaName = getSchemaName(topicPartition);
+    // the table should be present before opening a channel so let's do a table existence check here
+    tableActionsOnStartPartition(tableName, schema);
 
     // Create channel for the given partition
     createStreamingChannelForTopicPartition(
-        tableName, schemaName, topicPartition, tableName2SchemaEvolutionPermission.get(tableName));
+        tableName, schema, topicPartition, getHasSchemaEvolutionPermission(tableName, schema) );
   }
-
-  private String getSchemaName(TopicPartition topicPartition){
-    return Utils.getSchemaName(topicPartition, topicPrefixToSchemaMap, connectorConfig);
-  }
-
   /**
    * Initializes multiple Channels and partitionsToChannel maps with new instances of {@link
    * TopicPartitionChannel}
@@ -229,25 +223,28 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
     partitions.forEach(
         tp -> {
           String tableName = Utils.tableName(tp.topic(), topic2Table);
-          String schemaName = getSchemaName(tp);
+          String schema = topicMapping.getSchema(tp);
           createStreamingChannelForTopicPartition(
-              tableName, schemaName, tp, tableName2SchemaEvolutionPermission.get(tableName));
+              tableName, schema, tp, getHasSchemaEvolutionPermission(tableName, schema));
         });
   }
 
+
   private void perTopicActionsOnStartPartitions(String topic, Map<String, String> topic2Table) {
     String tableName = Utils.tableName(topic, topic2Table);
-    tableActionsOnStartPartition(tableName);
+    String schema = topicMapping.getSchema(topic);
+    tableActionsOnStartPartition(tableName, schema);
   }
 
-  private void tableActionsOnStartPartition(String tableName) {
+  private void tableActionsOnStartPartition(String tableName, String schema) {
     if (Utils.isIcebergEnabled(connectorConfig)) {
+      // tableName = getSchemaAndTableName(tableName, schema); // NOTE: multischema support for Iceberg is not currently supported
       icebergTableSchemaValidator.validateTable(
           tableName, Utils.role(connectorConfig), enableSchematization);
       icebergInitService.initializeIcebergTableProperties(tableName);
-      populateSchemaEvolutionPermissions(tableName);
+      populateSchemaEvolutionPermissions(getSchemaAndTableName(tableName, schema));
     } else {
-      createTableIfNotExists(tableName);
+      createTableIfNotExists(tableName, schema);
     }
   }
 
@@ -259,7 +256,7 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
    */
   private void createStreamingChannelForTopicPartition(
       final String tableName,
-      final String schemaName,
+      final String schema,
       final TopicPartition topicPartition,
       boolean hasSchemaEvolutionPermission) {
     final String partitionChannelKey =
@@ -268,12 +265,12 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
     partitionsToChannel.put(
         partitionChannelKey,
         createTopicPartitionChannel(
-            tableName, schemaName, topicPartition, hasSchemaEvolutionPermission, partitionChannelKey));
+            tableName, schema, topicPartition, hasSchemaEvolutionPermission, partitionChannelKey));
   }
 
   private TopicPartitionChannel createTopicPartitionChannel(
       String tableName,
-      String schemaName,
+      String schema,
       TopicPartition topicPartition,
       boolean hasSchemaEvolutionPermission,
       String partitionChannelKey) {
@@ -283,7 +280,7 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
         topicPartition,
         partitionChannelKey, // Streaming channel name
         tableName,
-        schemaName,
+        schema,
         hasSchemaEvolutionPermission,
         this.connectorConfig,
         this.kafkaRecordErrorReporter,
@@ -340,7 +337,7 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
           record.topic(),
           record.kafkaPartition());
       startPartition(
-          Utils.tableName(record.topic(), this.topicToTableMap),
+              topicMapping.getTable(record.topic()),
           new TopicPartition(record.topic(), record.kafkaPartition()));
     }
 
@@ -535,9 +532,14 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
     // TODO - remove from this class
   }
 
+  @Deprecated // Use setTopicMapping instead - not actually removing this method because then I'd have to remove it from SnowflakeSinkServiceV1 which I don't want to touch - Martin
   @Override
   public void setTopic2TableMap(Map<String, String> topicToTableMap) {
-    this.topicToTableMap = topicToTableMap;
+    // no-op
+  }
+
+  public void setTopicMapping(TopicMapping topicMapping){
+    this.topicMapping = topicMapping;
   }
 
   public void setTopicPrefixToSchemaMap(Map<String, String> topicPrefixToSchemaMap) {
@@ -625,7 +627,8 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
   }
 
   // ------ Streaming Ingest Related Functions ------ //
-  private void createTableIfNotExists(final String tableName) {
+  private void createTableIfNotExists(String tableName, String schema) {
+    tableName = getSchemaAndTableName(tableName, schema); // yes this is funky but it actually works... Trying to avoid any changes to all the JDBC code in SnowflakeConnectionService
     if (this.conn.tableExist(tableName)) {
       if (!this.enableSchematization) {
         if (this.conn.isTableCompatible(tableName)) {
@@ -652,6 +655,21 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
     populateSchemaEvolutionPermissions(tableName);
   }
 
+  private Boolean getHasSchemaEvolutionPermission(String tableName, String schema) {
+    String key = getSchemaAndTableName(tableName, schema);
+    return tableName2SchemaEvolutionPermission.get(key);
+  }
+
+  /**
+   * @return qualified table name of the form "SCHEMA.TABLE_NAME".
+   */
+  public static String getSchemaAndTableName(String tableName, String schema) {
+    return schema + "." + tableName;
+  }
+
+  /**
+   * @param tableName - Note: this includes the schema. see {@link #getSchemaAndTableName(String, String)}
+   */
   private void populateSchemaEvolutionPermissions(String tableName) {
     if (!tableName2SchemaEvolutionPermission.containsKey(tableName)) {
       if (enableSchematization) {

@@ -17,7 +17,9 @@
 package com.snowflake.kafka.connector;
 
 import com.snowflake.kafka.connector.config.ConnectorConfigDefinition;
+import com.snowflake.kafka.connector.config.DefaultTopicMapping;
 import com.snowflake.kafka.connector.config.IcebergConfigValidator;
+import com.snowflake.kafka.connector.config.TopicMapping;
 import com.snowflake.kafka.connector.internal.KCLogger;
 import com.snowflake.kafka.connector.internal.SnowflakeConnectionService;
 import com.snowflake.kafka.connector.internal.SnowflakeConnectionServiceFactory;
@@ -34,6 +36,8 @@ import org.apache.kafka.common.config.Config;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.connect.connector.Task;
 import org.apache.kafka.connect.sink.SinkConnector;
+
+import static com.snowflake.kafka.connector.Utils.TOPIC_MAPPING_PROVIDER_CLASS;
 
 /**
  * SnowflakeSinkConnector implements SinkConnector for Kafka Connect framework.
@@ -204,11 +208,14 @@ public class SnowflakeSinkConnector extends SinkConnector {
     // cross-fields validation here
     Config result = super.validate(connectorConfigs);
 
+    TopicMapping topicMappingProvider = getTopicMappingProvider(connectorConfigs);
+
     // Validate ensure that url, user, db, schema, private key exist in config and is not empty
     // and there is no single field validation error
-    if (!Utils.isSingleFieldValid(result)) {
+    if (!topicMappingProvider.validate(connectorConfigs, result)){
       return result;
     }
+    topicMappingProvider.start(connectorConfigs);
 
     // Verify proxy config is valid
     Map<String, String> invalidProxyParams = Utils.validateProxySettings(connectorConfigs);
@@ -297,21 +304,25 @@ public class SnowflakeSinkConnector extends SinkConnector {
       return result;
     }
 
-    try {
-      testConnection.schemaExists(connectorConfigs.get(Utils.SF_SCHEMA));
-    } catch (SnowflakeKafkaConnectorException e) {
-      LOGGER.error("Validate Error msg:{}, errorCode:{}", e.getMessage(), e.getCode());
-      if (e.getCode().equals("2001")) {
-        Utils.updateConfigErrorMessage(result, Utils.SF_SCHEMA, " schema does not exist");
-      } else {
-        throw e;
+    // validate that all schemas exist
+    for (String schema : topicMappingProvider.getAllSchemas()){
+      try {
+        testConnection.schemaExists(schema);
+      } catch (SnowflakeKafkaConnectorException e) {
+        LOGGER.error("Validate Error msg:{}, errorCode:{}", e.getMessage(), e.getCode());
+        if (e.getCode().equals("2001")) {
+          Utils.updateConfigErrorMessage(result, Utils.SF_SCHEMA, " schema named " + schema + " does not exist");
+        } else {
+          throw e;
+        }
+        return result;
       }
-      return result;
     }
 
     LOGGER.info("Validated config with no error");
     return result;
   }
+
 
   private static boolean isUsingConfigProvider(Map<String, String> connectorConfigs) {
     Pattern configProviderPrefix = Pattern.compile("[$][{][a-zA-Z]+:");
@@ -334,5 +345,23 @@ public class SnowflakeSinkConnector extends SinkConnector {
   @Override
   public String version() {
     return Utils.VERSION;
+  }
+
+  public static TopicMapping getTopicMappingProvider(Map<String, String> connectorConfigs) {
+    TopicMapping topicMapping = null;
+    if (connectorConfigs.containsKey(TOPIC_MAPPING_PROVIDER_CLASS)){
+      String topicMappingProviderClass = connectorConfigs.get(TOPIC_MAPPING_PROVIDER_CLASS);
+      try {
+        topicMapping = (TopicMapping) Class.forName(topicMappingProviderClass).newInstance();
+      } catch (Exception e) {
+        LOGGER.error("Invalid topic mapping provider class: {}", topicMappingProviderClass, e);
+        throw new RuntimeException(TOPIC_MAPPING_PROVIDER_CLASS + " " + topicMappingProviderClass + " is invalid", e);
+      }
+    }
+    if (topicMapping == null) {
+      topicMapping = new DefaultTopicMapping();
+    }
+    LOGGER.info("Using topic mapping provider: " + topicMapping.getClass());
+    return topicMapping;
   }
 }

@@ -40,6 +40,7 @@ public class IcebergSchemaEvolutionService implements SchemaEvolutionService {
       SinkRecord record,
       Map<String, ColumnProperties> existingSchema) {
     String tableName = targetItems.getTableName();
+    // TODO for multischema support need to fix the tableName to include the schema also e.g. see SnowflakeSchemaEvolutionService.evolveSchemaIfNeeded
 
     Set<String> columnsToEvolve = extractColumnNames(targetItems);
 

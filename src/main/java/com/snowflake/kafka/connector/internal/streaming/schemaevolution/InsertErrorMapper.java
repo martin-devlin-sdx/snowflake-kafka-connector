@@ -10,7 +10,7 @@ import net.snowflake.ingest.streaming.InsertValidationResponse;
 public class InsertErrorMapper {
 
   public SchemaEvolutionTargetItems mapToSchemaEvolutionItems(
-      InsertValidationResponse.InsertError insertError, String tableName) {
+      InsertValidationResponse.InsertError insertError, String tableName, String schema) {
     List<String> extraColNames = insertError.getExtraColNames();
     List<String> nonNullableColumns = insertError.getMissingNotNullColNames();
     List<String> nullValueForNotNullColNames = insertError.getNullValueForNotNullColNames();
@@ -18,7 +18,8 @@ public class InsertErrorMapper {
     return new SchemaEvolutionTargetItems(
         tableName,
         joinNullableLists(nonNullableColumns, nullValueForNotNullColNames),
-        extraColNames);
+        extraColNames,
+        schema);
   }
 
   private List<String> joinNullableLists(List<String> list1, List<String> list2) {

@@ -1,5 +1,6 @@
 package com.snowflake.kafka.connector.internal.streaming;
 
+import static com.snowflake.kafka.connector.Utils.SF_SCHEMA;
 import static com.snowflake.kafka.connector.internal.streaming.ChannelMigrationResponseCode.SUCCESS;
 import static com.snowflake.kafka.connector.internal.streaming.ChannelMigrationResponseCode.isChannelMigrationResponseSuccessful;
 import static com.snowflake.kafka.connector.internal.streaming.channel.TopicPartitionChannel.NO_OFFSET_TOKEN_REGISTERED_IN_SNOWFLAKE;
@@ -317,7 +318,7 @@ public class TopicPartitionChannelIT {
     OpenChannelRequest channelRequest =
         OpenChannelRequest.builder(testChannelName)
             .setDBName(config.get(Utils.SF_DATABASE))
-            .setSchemaName(config.get(Utils.SF_SCHEMA))
+            .setSchemaName(config.get(SF_SCHEMA))
             .setTableName(this.testTableName)
             .setOnErrorOption(OpenChannelRequest.OnErrorOption.CONTINUE)
             .build();
@@ -423,7 +424,7 @@ public class TopicPartitionChannelIT {
     OpenChannelRequest channelRequest =
         OpenChannelRequest.builder(testChannelName)
             .setDBName(config.get(Utils.SF_DATABASE))
-            .setSchemaName(config.get(Utils.SF_SCHEMA))
+            .setSchemaName(config.get(SF_SCHEMA))
             .setTableName(this.testTableName)
             .setOnErrorOption(OpenChannelRequest.OnErrorOption.CONTINUE)
             .build();
@@ -524,6 +525,8 @@ public class TopicPartitionChannelIT {
     Map<String, String> config = getConfForStreaming();
     SnowflakeSinkConnectorConfig.setDefaultValues(config);
 
+    String testSchema = config.get(SF_SCHEMA);
+
     InMemorySinkTaskContext inMemorySinkTaskContext =
         new InMemorySinkTaskContext(Collections.singleton(topicPartition));
 
@@ -578,7 +581,7 @@ public class TopicPartitionChannelIT {
     // we migrate the offset from new channel format to old channel format
     ChannelMigrateOffsetTokenResponseDTO channelMigrateOffsetTokenResponseDTO =
         conn.migrateStreamingChannelOffsetToken(
-            testTableName, channelNameFormatV2, testChannelName);
+            testTableName, channelNameFormatV2, testChannelName, testSchema);
     Assertions.assertTrue(
         isChannelMigrationResponseSuccessful(channelMigrateOffsetTokenResponseDTO));
     Assertions.assertEquals(

@@ -104,13 +104,14 @@ public class InternalUtilsTest {
           InternalUtils.createProperties(t, url);
         });
 
-    assert TestUtils.assertError(
-        SnowflakeErrors.ERROR_0014,
-        () -> {
-          Map<String, String> t = new HashMap<>(config);
-          t.remove(Utils.SF_SCHEMA);
-          InternalUtils.createProperties(t, url);
-        });
+    // removed for multischema support. We always add the schema to the table name when using jdbc.
+//    assert TestUtils.assertError(
+//        SnowflakeErrors.ERROR_0014,
+//        () -> {
+//          Map<String, String> t = new HashMap<>(config);
+//          t.remove(Utils.SF_SCHEMA);
+//          InternalUtils.createProperties(t, url);
+//        });
 
     assert TestUtils.assertError(
         SnowflakeErrors.ERROR_0015,

@@ -101,7 +101,7 @@ public class DirectTopicPartitionChannel implements TopicPartitionChannel {
   /* table is required for opening the channel */
   private final String tableName;
 
-  private final String schemaName;
+  private final String schema;
 
   /* Error handling, DB, schema, Snowflake URL and other snowflake specific connector properties are defined here. */
   private final Map<String, String> sfConnectorConfig;
@@ -192,7 +192,7 @@ public class DirectTopicPartitionChannel implements TopicPartitionChannel {
    *     (TopicPartitionChannel)
    * @param channelNameFormatV1 channel Name which is deterministic for topic and partition
    * @param tableName table to ingest in snowflake
-   * @param schemaName the snowflake schema for the given 'tableName'
+   * @param schema the snowflake schema for the given 'tableName'
    * @param hasSchemaEvolutionPermission if the role has permission to perform schema evolution on
    *     the table
    * @param sfConnectorConfig configuration set for snowflake connector
@@ -209,7 +209,7 @@ public class DirectTopicPartitionChannel implements TopicPartitionChannel {
       TopicPartition topicPartition,
       final String channelNameFormatV1,
       final String tableName,
-      final String schemaName,
+      final String schema,
       boolean hasSchemaEvolutionPermission,
       final Map<String, String> sfConnectorConfig,
       KafkaRecordErrorReporter kafkaRecordErrorReporter,
@@ -228,7 +228,7 @@ public class DirectTopicPartitionChannel implements TopicPartitionChannel {
     this.topicPartition = Preconditions.checkNotNull(topicPartition);
     this.channelNameFormatV1 = Preconditions.checkNotNull(channelNameFormatV1);
     this.tableName = Preconditions.checkNotNull(tableName);
-    this.schemaName = Preconditions.checkNotNull(schemaName);
+    this.schema = Preconditions.checkNotNull(schema);
     this.sfConnectorConfig = Preconditions.checkNotNull(sfConnectorConfig);
     this.kafkaRecordErrorReporter = Preconditions.checkNotNull(kafkaRecordErrorReporter);
     this.sinkTaskContext = Preconditions.checkNotNull(sinkTaskContext);
@@ -257,7 +257,7 @@ public class DirectTopicPartitionChannel implements TopicPartitionChannel {
           TopicPartitionChannel.generateChannelNameFormatV2(
               this.channelNameFormatV1, this.conn.getConnectorName());
       channelOffsetTokenMigrator.migrateChannelOffsetWithRetry(
-          this.tableName, channelNameFormatV2, this.channelNameFormatV1);
+          this.tableName, channelNameFormatV2, this.channelNameFormatV1, this.schema);
     }
 
     // Open channel and reset the offset in kafka
@@ -528,7 +528,7 @@ public class DirectTopicPartitionChannel implements TopicPartitionChannel {
     if (enableSchemaEvolution) {
       InsertValidationResponse.InsertError insertError = insertErrors.get(0);
       SchemaEvolutionTargetItems schemaEvolutionTargetItems =
-          insertErrorMapper.mapToSchemaEvolutionItems(insertError, this.channel.getTableName());
+          insertErrorMapper.mapToSchemaEvolutionItems(insertError, this.channel.getTableName(), this.schema);
       if (schemaEvolutionTargetItems.hasDataForSchemaEvolution()) {
         try {
           schemaEvolutionService.evolveSchemaIfNeeded(
@@ -824,7 +824,7 @@ public class DirectTopicPartitionChannel implements TopicPartitionChannel {
     OpenChannelRequest channelRequest =
         OpenChannelRequest.builder(this.channelNameFormatV1)
             .setDBName(this.sfConnectorConfig.get(Utils.SF_DATABASE))
-            .setSchemaName(this.schemaName)
+            .setSchemaName(this.schema)
             .setTableName(this.tableName)
             .setOnErrorOption(onErrorOption)
             .setOffsetTokenVerificationFunction(StreamingUtils.offsetTokenVerificationFunction)

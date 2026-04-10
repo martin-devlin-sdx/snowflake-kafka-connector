@@ -1,13 +1,16 @@
 package com.snowflake.kafka.connector.internal.streaming;
 
+import com.snowflake.kafka.connector.Utils;
+import com.snowflake.kafka.connector.config.TopicMapping;
 import com.snowflake.kafka.connector.dlq.InMemoryKafkaRecordErrorReporter;
 import com.snowflake.kafka.connector.dlq.KafkaRecordErrorReporter;
 import com.snowflake.kafka.connector.internal.SnowflakeConnectionService;
 import com.snowflake.kafka.connector.internal.streaming.schemaevolution.SchemaEvolutionService;
 import com.snowflake.kafka.connector.internal.streaming.schemaevolution.snowflake.SnowflakeSchemaEvolutionService;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
+
+import java.util.*;
+
+import org.apache.kafka.common.config.Config;
 import org.apache.kafka.connect.sink.SinkTaskContext;
 
 public class StreamingSinkServiceBuilder {
@@ -18,7 +21,7 @@ public class StreamingSinkServiceBuilder {
   private KafkaRecordErrorReporter errorReporter = new InMemoryKafkaRecordErrorReporter();
   private SinkTaskContext sinkTaskContext = new InMemorySinkTaskContext(Collections.emptySet());
   private boolean enableCustomJMXMonitoring = false;
-  private Map<String, String> topicToTableMap = new HashMap<>();
+  private TopicMapping topicMapping;
   private Map<String, String> prefixTopicToSchemaMap;
   private SchemaEvolutionService schemaEvolutionService;
 
@@ -34,7 +37,7 @@ public class StreamingSinkServiceBuilder {
         errorReporter,
         sinkTaskContext,
         enableCustomJMXMonitoring,
-        topicToTableMap,
+        topicMapping,
         prefixTopicToSchemaMap,
         schemaEvolutionService == null
             ? new SnowflakeSchemaEvolutionService(conn)
@@ -64,7 +67,7 @@ public class StreamingSinkServiceBuilder {
   }
 
   public StreamingSinkServiceBuilder withTopicToTableMap(Map<String, String> topic2TableMap) {
-    topicToTableMap = topic2TableMap;
+    this.topicMapping = new MockTopicMapping(topic2TableMap);
     return this;
   }
 
@@ -77,5 +80,35 @@ public class StreamingSinkServiceBuilder {
       SchemaEvolutionService schemaEvolutionService) {
     this.schemaEvolutionService = schemaEvolutionService;
     return this;
+  }
+
+  public static class MockTopicMapping implements TopicMapping{
+      private final Map<String, String> topic2TableMap;
+      MockTopicMapping(Map<String, String> topic2TableMap){
+          this.topic2TableMap = topic2TableMap;
+      }
+    @Override
+    public boolean validate(Map<String, String> connectorConfig, Config config) {
+      return true;
+    }
+    @Override
+    public void start(Map<String, String> connectorConfig) {
+    }
+    @Override
+    public Set<String> getAllSchemas() {
+      return Collections.singleton("");
+    }
+    @Override
+    public String getSchema(String topic) {
+      return "";
+    }
+    @Override
+    public String getTable(String topic) {
+      return  Utils.tableName(topic, topic2TableMap);
+    }
+    @Override
+    public Map<String, String> getTopic2table() {
+      return topic2TableMap;
+    }
   }
 }

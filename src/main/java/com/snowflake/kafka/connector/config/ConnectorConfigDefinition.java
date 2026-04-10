@@ -4,6 +4,7 @@ import static com.snowflake.kafka.connector.SnowflakeSinkConnectorConfig.*;
 
 import com.snowflake.kafka.connector.SnowflakeSinkConnectorConfig;
 import com.snowflake.kafka.connector.Utils;
+import com.snowflake.kafka.connector.config.MultiSchemaTopicMapping.TopicToSchemaValidator;
 import com.snowflake.kafka.connector.internal.streaming.IngestionMethodConfig;
 import com.snowflake.kafka.connector.internal.streaming.StreamingUtils;
 import org.apache.kafka.common.config.ConfigDef;
@@ -498,6 +499,19 @@ public class ConnectorConfigDefinition {
             CONNECTOR_CONFIG_DOC,
             11,
             ConfigDef.Width.NONE,
-            ENABLE_CHANNEL_OFFSET_TOKEN_VERIFICATION_FUNCTION_DISPLAY);
+            ENABLE_CHANNEL_OFFSET_TOKEN_VERIFICATION_FUNCTION_DISPLAY)
+        .define(TOPIC_PREFIX_TO_SCHEMA_MAP,
+            ConfigDef.Type.STRING,
+            null,
+            new TopicToSchemaValidator(),
+            ConfigDef.Importance.LOW,
+            "Map of topic prefixes to schemas. (optional). Format : comma-separated tuples, e.g."
+                    + " <topic-1-prefix>:<schema-1>,<topic-2-prefix>:<schema-2>,... ",
+            CONNECTOR_CONFIG_DOC,
+            0,
+            ConfigDef.Width.NONE,
+            TOPIC_PREFIX_TO_SCHEMA_MAP);
+
+
   }
 }

@@ -16,10 +16,10 @@
  */
 package com.snowflake.kafka.connector;
 
-import static com.snowflake.kafka.connector.Utils.getTopicPrefixToSchemaMap;
 import static com.snowflake.kafka.connector.internal.streaming.channel.TopicPartitionChannel.NO_OFFSET_TOKEN_REGISTERED_IN_SNOWFLAKE;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.snowflake.kafka.connector.config.TopicMapping;
 import com.snowflake.kafka.connector.dlq.KafkaRecordErrorReporter;
 import com.snowflake.kafka.connector.internal.KCLogger;
 import com.snowflake.kafka.connector.internal.SnowflakeConnectionService;
@@ -44,6 +44,7 @@ import org.apache.kafka.connect.errors.RetriableException;
 import org.apache.kafka.connect.sink.ErrantRecordReporter;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.apache.kafka.connect.sink.SinkTask;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * SnowflakeSinkTask implements SinkTask for Kafka Connect framework.
@@ -73,7 +74,7 @@ public class SnowflakeSinkTask extends SinkTask {
 
   private SnowflakeSinkService sink = null;
   private Map<String, String> topic2table = null;
-  private Map<String, String> topicPrefix2SchemaMap = null;
+  private TopicMapping topicMapping;
 
   // snowflake JDBC connection provides methods to interact with user's
   // snowflake
@@ -160,8 +161,10 @@ public class SnowflakeSinkTask extends SinkTask {
     this.taskConfigId = parsedConfig.getOrDefault(Utils.TASK_ID, "-1");
 
     // generate topic to table map
-    this.topic2table = getTopicToTableMap(parsedConfig);
-    this.topicPrefix2SchemaMap = getTopicPrefixToSchemaMap(parsedConfig, topic2table);
+//    this.topic2table = getTopicToTableMap(parsedConfig);
+    this.topicMapping = SnowflakeSinkConnector.getTopicMappingProvider(parsedConfig);
+    this.topicMapping.start(parsedConfig);
+    this.topic2table = topicMapping.getTopic2table();
 
     this.authorizationExceptionTracker.updateStateOnTaskStart(parsedConfig);
 
@@ -206,12 +209,7 @@ public class SnowflakeSinkTask extends SinkTask {
     KafkaRecordErrorReporter kafkaRecordErrorReporter = createKafkaRecordErrorReporter();
 
     // default to snowpipe
-    IngestionMethodConfig ingestionType = IngestionMethodConfig.SNOWPIPE;
-    if (parsedConfig.containsKey(SnowflakeSinkConnectorConfig.INGESTION_METHOD_OPT)) {
-      ingestionType =
-          IngestionMethodConfig.valueOf(
-              parsedConfig.get(SnowflakeSinkConnectorConfig.INGESTION_METHOD_OPT).toUpperCase());
-    }
+    IngestionMethodConfig ingestionType = getIngestionMethodConfig(parsedConfig);
 
     conn =
         SnowflakeConnectionServiceFactory.builder()
@@ -229,7 +227,7 @@ public class SnowflakeSinkTask extends SinkTask {
             .setRecordNumber(bufferCountRecords)
             .setFlushTime(bufferFlushTime)
             .setTopic2TableMap(topic2table)
-            .setTopicPrefix2SchemaMap(topicPrefix2SchemaMap)
+            .setTopicMapping(topicMapping)
             .setMetadataConfig(metadataConfig)
             .setBehaviorOnNullValuesConfig(behavior)
             .setCustomJMXMetrics(enableCustomJMXMonitoring)
@@ -241,6 +239,16 @@ public class SnowflakeSinkTask extends SinkTask {
         "task started, execution time: {} milliseconds",
         this.taskConfigId,
         getDurationFromStartMs(this.taskStartTime));
+  }
+
+  public static @NonNull IngestionMethodConfig getIngestionMethodConfig(Map<String, String> parsedConfig) {
+    IngestionMethodConfig ingestionType = IngestionMethodConfig.SNOWPIPE;
+    if (parsedConfig.containsKey(SnowflakeSinkConnectorConfig.INGESTION_METHOD_OPT)) {
+      ingestionType =
+          IngestionMethodConfig.valueOf(
+              parsedConfig.get(SnowflakeSinkConnectorConfig.INGESTION_METHOD_OPT).toUpperCase());
+    }
+    return ingestionType;
   }
 
   /**

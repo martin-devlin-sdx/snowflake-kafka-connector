@@ -11,13 +11,15 @@ import javax.annotation.Nonnull;
  */
 public class SchemaEvolutionTargetItems {
   private final String tableName;
+  private final String schema;
 
   @Nonnull private final List<String> columnsToDropNonNullability;
   @Nonnull private final List<String> columnsToAdd;
 
   public SchemaEvolutionTargetItems(
-      String tableName, List<String> columnsToDropNonNullability, List<String> columnsToAdd) {
+      String tableName, List<String> columnsToDropNonNullability, List<String> columnsToAdd, String schema) {
     this.tableName = tableName;
+    this.schema = schema;
     this.columnsToDropNonNullability =
         columnsToDropNonNullability != null ? columnsToDropNonNullability : Collections.emptyList();
     this.columnsToAdd = columnsToAdd != null ? columnsToAdd : Collections.emptyList();
@@ -25,10 +27,6 @@ public class SchemaEvolutionTargetItems {
 
   public boolean hasDataForSchemaEvolution() {
     return !columnsToDropNonNullability.isEmpty() || !columnsToAdd.isEmpty();
-  }
-
-  public SchemaEvolutionTargetItems(String tableName, List<String> columnsToAdd) {
-    this(tableName, null, columnsToAdd);
   }
 
   public String getTableName() {
@@ -71,5 +69,9 @@ public class SchemaEvolutionTargetItems {
         + ", extraColNames="
         + columnsToAdd
         + '}';
+  }
+
+  public String getSchema() {
+      return schema;
   }
 }

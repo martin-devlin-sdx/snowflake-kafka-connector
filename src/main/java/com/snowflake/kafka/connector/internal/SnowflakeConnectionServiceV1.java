@@ -1112,14 +1112,14 @@ public class SnowflakeConnectionServiceV1 implements SnowflakeConnectionService 
 
   @Override
   public ChannelMigrateOffsetTokenResponseDTO migrateStreamingChannelOffsetToken(
-      String tableName, String sourceChannelName, String destinationChannelName) {
+      String tableName, String sourceChannelName, String destinationChannelName, String schemaName) {
     InternalUtils.assertNotEmpty("tableName", tableName);
     InternalUtils.assertNotEmpty("sourceChannelName", sourceChannelName);
     InternalUtils.assertNotEmpty("destinationChannelName", destinationChannelName);
     String fullyQualifiedTableName =
         jdbcProperties.getProperty(InternalUtils.JDBC_DATABASE)
             + "."
-            + jdbcProperties.getProperty(InternalUtils.JDBC_SCHEMA)
+            + schemaName
             + "."
             + tableName;
     String query = "select SYSTEM$SNOWPIPE_STREAMING_MIGRATE_CHANNEL_OFFSET_TOKEN((?), (?), (?));";

@@ -48,7 +48,7 @@ public class ChannelOffsetTokenMigrator {
   }
 
   public void migrateChannelOffsetWithRetry(
-      String tableName, String sourceChannelName, String destinationChannelName) {
+      String tableName, String sourceChannelName, String destinationChannelName, String schema) {
     Fallback<ChannelMigrateOffsetTokenResponseDTO> fallback =
         Fallback.ofException(
             e -> {
@@ -62,6 +62,6 @@ public class ChannelOffsetTokenMigrator {
         .get(
             () ->
                 snowflakeConnectionService.migrateStreamingChannelOffsetToken(
-                    tableName, sourceChannelName, destinationChannelName));
+                    tableName, sourceChannelName, destinationChannelName, schema));
   }
 }

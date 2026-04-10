@@ -259,9 +259,12 @@ public class InternalUtils {
       throw SnowflakeErrors.ERROR_0013.getException();
     }
 
-    if (!properties.containsKey(JDBC_SCHEMA)) {
-      throw SnowflakeErrors.ERROR_0014.getException();
-    }
+    // when using multi-schema we don't set a default schema in the jdbc connection
+    // - in the single schema case the presence of Utils.SF_SCHEMA already got validated earlier when the connector started up
+    //   so JDBC_SCHEMA will definitely be present at this stage.
+//    if (!properties.containsKey(JDBC_SCHEMA)) {
+//      throw SnowflakeErrors.ERROR_0014.getException();
+//    }
 
     if (!properties.containsKey(JDBC_DATABASE)) {
       throw SnowflakeErrors.ERROR_0015.getException();

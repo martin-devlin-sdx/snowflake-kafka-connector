@@ -153,12 +153,13 @@ public class DefaultConnectorConfigValidator implements ConnectorConfigValidator
               "{} cannot be empty.", SnowflakeSinkConnectorConfig.SNOWFLAKE_DATABASE));
     }
 
-    // sanity check
-    if (!config.containsKey(SnowflakeSinkConnectorConfig.SNOWFLAKE_SCHEMA)) {
-      invalidConfigParams.put(
-          SnowflakeSinkConnectorConfig.SNOWFLAKE_SCHEMA,
-          Utils.formatString("{} cannot be empty.", SnowflakeSinkConnectorConfig.SNOWFLAKE_SCHEMA));
-    }
+    // since adding multischema support, this is how validated in the com.snowflake.kafka.connector.config.TopicMapping.validate
+    // - its required for single schema but incorrect to have it for multischema
+//    if (!config.containsKey(SnowflakeSinkConnectorConfig.SNOWFLAKE_SCHEMA)) {
+//      invalidConfigParams.put(
+//          SnowflakeSinkConnectorConfig.SNOWFLAKE_SCHEMA,
+//          Utils.formatString("{} cannot be empty.", SnowflakeSinkConnectorConfig.SNOWFLAKE_SCHEMA));
+//    }
 
     switch (config
         .getOrDefault(SnowflakeSinkConnectorConfig.AUTHENTICATOR_TYPE, Utils.SNOWFLAKE_JWT)

@@ -14,6 +14,8 @@ import org.apache.kafka.connect.sink.SinkRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.snowflake.kafka.connector.internal.streaming.SnowflakeSinkServiceV2.getSchemaAndTableName;
+
 public class SnowflakeSchemaEvolutionService implements SchemaEvolutionService {
 
   private static final Logger LOGGER =
@@ -49,13 +51,15 @@ public class SnowflakeSchemaEvolutionService implements SchemaEvolutionService {
       SinkRecord record,
       Map<String, ColumnProperties> existingSchema) {
     String tableName = targetItems.getTableName();
+    tableName = getSchemaAndTableName(tableName, targetItems.getSchema());
+
     List<String> columnsToDropNullability = targetItems.getColumnsToDropNonNullability();
     // Update nullability if needed, ignore any exceptions since other task might be succeeded
     if (!columnsToDropNullability.isEmpty()) {
       LOGGER.debug(
           "Dropping nonNullability for table: {} columns: {}", tableName, columnsToDropNullability);
       try {
-        conn.alterNonNullableColumns(targetItems.getTableName(), columnsToDropNullability);
+        conn.alterNonNullableColumns(tableName, columnsToDropNullability);
       } catch (SnowflakeKafkaConnectorException e) {
         LOGGER.warn(
             String.format(

@@ -435,7 +435,7 @@ public class TopicPartitionChannelTest {
     Mockito.when(mockStreamingChannel.getFullyQualifiedName()).thenReturn(TEST_CHANNEL_NAME);
     Mockito.when(
             mockSnowflakeConnectionService.migrateStreamingChannelOffsetToken(
-                anyString(), anyString(), Mockito.anyString()))
+                anyString(), anyString(), Mockito.anyString(), anyString()))
         .thenReturn(new ChannelMigrateOffsetTokenResponseDTO(50, "SUCCESS"));
 
     // checking default
@@ -456,7 +456,7 @@ public class TopicPartitionChannelTest {
             null,
             this.schemaEvolutionService);
     Mockito.verify(mockSnowflakeConnectionService, Mockito.times(1))
-        .migrateStreamingChannelOffsetToken(anyString(), anyString(), anyString());
+        .migrateStreamingChannelOffsetToken(anyString(), anyString(), anyString(), anyString());
 
     Map<String, String> customSfConfig = new HashMap<>(sfConnectorConfig);
     customSfConfig.put(ENABLE_CHANNEL_OFFSET_TOKEN_MIGRATION_CONFIG, "true");
@@ -478,7 +478,7 @@ public class TopicPartitionChannelTest {
             null,
             this.schemaEvolutionService);
     Mockito.verify(mockSnowflakeConnectionService, Mockito.times(2))
-        .migrateStreamingChannelOffsetToken(anyString(), anyString(), anyString());
+        .migrateStreamingChannelOffsetToken(anyString(), anyString(), anyString(), anyString());
 
     customSfConfig.put(ENABLE_CHANNEL_OFFSET_TOKEN_MIGRATION_CONFIG, "false");
     SnowflakeConnectionService anotherMockForParamDisabled =
@@ -501,7 +501,7 @@ public class TopicPartitionChannelTest {
             null,
             this.schemaEvolutionService);
     Mockito.verify(anotherMockForParamDisabled, Mockito.times(0))
-        .migrateStreamingChannelOffsetToken(anyString(), anyString(), anyString());
+        .migrateStreamingChannelOffsetToken(anyString(), anyString(), anyString(), anyString());
   }
 
   @Test
@@ -510,7 +510,7 @@ public class TopicPartitionChannelTest {
     Mockito.when(mockStreamingChannel.getFullyQualifiedName()).thenReturn(TEST_CHANNEL_NAME);
     Mockito.when(
             mockSnowflakeConnectionService.migrateStreamingChannelOffsetToken(
-                anyString(), anyString(), Mockito.anyString()))
+                anyString(), anyString(), Mockito.anyString(), anyString()))
         .thenThrow(new RuntimeException("Exception migrating channel offset token"));
     try {
       // checking default
@@ -533,7 +533,7 @@ public class TopicPartitionChannelTest {
       Assert.fail("Should throw an exception:");
     } catch (Exception e) {
       Mockito.verify(mockSnowflakeConnectionService, Mockito.times(1))
-          .migrateStreamingChannelOffsetToken(anyString(), anyString(), anyString());
+          .migrateStreamingChannelOffsetToken(anyString(), anyString(), anyString(), anyString());
       assert e.getMessage().contains("Exception migrating channel offset token");
     }
   }

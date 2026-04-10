@@ -321,10 +321,11 @@ public interface SnowflakeConnectionService {
    *     Channel with this name will also be deleted.
    * @param destinationChannelName destinationChannel name to where the offsetToken will be copied
    *     over.
+   * @param schemaName the schema from which the 'tableName' belongs
    * @return The DTO serialized from the migration response.
    */
   ChannelMigrateOffsetTokenResponseDTO migrateStreamingChannelOffsetToken(
-      String tableName, String sourceChannelName, String destinationChannelName);
+          String tableName, String sourceChannelName, String destinationChannelName, String schemaName);
 
   /**
    * Alter the RECORD_METADATA column to be of the required structured OBJECT type for iceberg

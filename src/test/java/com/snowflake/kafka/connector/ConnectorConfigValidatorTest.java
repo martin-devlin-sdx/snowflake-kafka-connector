@@ -108,7 +108,6 @@ public class ConnectorConfigValidatorTest {
     SNOWFLAKE_URL,
     SNOWFLAKE_USER,
     SNOWFLAKE_DATABASE,
-    SNOWFLAKE_SCHEMA,
     SNOWFLAKE_PRIVATE_KEY,
     BUFFER_SIZE_BYTES,
     BUFFER_COUNT_RECORDS
@@ -910,7 +909,6 @@ public class ConnectorConfigValidatorTest {
     assertThatThrownBy(() -> connectorConfigValidator.validateConfig(config))
         .isInstanceOf(SnowflakeKafkaConnectorException.class)
         .hasMessageContaining(SNOWFLAKE_DATABASE)
-        .hasMessageContaining(SNOWFLAKE_SCHEMA)
         .hasMessageContaining(BUFFER_COUNT_RECORDS)
         .hasMessageContaining(SNOWFLAKE_PRIVATE_KEY)
         .hasMessageContaining(SNOWFLAKE_USER)
@@ -927,7 +925,6 @@ public class ConnectorConfigValidatorTest {
     List<String> emptyParams =
         Arrays.asList(
             SNOWFLAKE_DATABASE,
-            SNOWFLAKE_SCHEMA,
             BUFFER_COUNT_RECORDS,
             SNOWFLAKE_PRIVATE_KEY,
             SNOWFLAKE_USER,

@@ -23,9 +23,10 @@ class InsertErrorMapperTest {
             Collections.singletonList("extraCol"),
             Arrays.asList("missingNotNullCol", "missingNotNullCol2"),
             Arrays.asList("nullValueForNotNull", "nullValueForNotNull2"));
-    SchemaEvolutionTargetItems items = mapper.mapToSchemaEvolutionItems(insertError, "tableName");
+    SchemaEvolutionTargetItems items = mapper.mapToSchemaEvolutionItems(insertError, "tableName", "schema");
 
     assertThat(items.getTableName()).isEqualTo("tableName");
+    assertThat(items.getSchema()).isEqualTo("schema");
     assertThat(items.getColumnsToDropNonNullability())
         .containsExactlyInAnyOrder(
             "missingNotNullCol",
@@ -41,9 +42,10 @@ class InsertErrorMapperTest {
     InsertValidationResponse.InsertError insertError =
         createInsertError(
             Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
-    SchemaEvolutionTargetItems items = mapper.mapToSchemaEvolutionItems(insertError, "tableName");
+    SchemaEvolutionTargetItems items = mapper.mapToSchemaEvolutionItems(insertError, "tableName", "schema");
 
     assertThat(items.getTableName()).isEqualTo("tableName");
+    assertThat(items.getSchema()).isEqualTo("schema");
     assertThat(items.getColumnsToDropNonNullability()).isEmpty();
     assertThat(items.getColumnsToAdd()).isEmpty();
     assertThat(items.hasDataForSchemaEvolution()).isFalse();
@@ -52,9 +54,10 @@ class InsertErrorMapperTest {
   @Test
   void shouldReturnNoDataForNullLists() {
     InsertValidationResponse.InsertError insertError = createInsertError(null, null, null);
-    SchemaEvolutionTargetItems items = mapper.mapToSchemaEvolutionItems(insertError, "tableName");
+    SchemaEvolutionTargetItems items = mapper.mapToSchemaEvolutionItems(insertError, "tableName", "schema");
 
     assertThat(items.getTableName()).isEqualTo("tableName");
+    assertThat(items.getSchema()).isEqualTo("schema");
     assertThat(items.getColumnsToDropNonNullability()).isEmpty();
     assertThat(items.getColumnsToAdd()).isEmpty();
     assertThat(items.hasDataForSchemaEvolution()).isFalse();
@@ -66,9 +69,10 @@ class InsertErrorMapperTest {
       InsertValidationResponse.InsertError insertError,
       String[] expectedColumnsToDropNonNullability,
       String[] expectedColumnsToAdd) {
-    SchemaEvolutionTargetItems items = mapper.mapToSchemaEvolutionItems(insertError, "tableName");
+    SchemaEvolutionTargetItems items = mapper.mapToSchemaEvolutionItems(insertError, "tableName", "schema");
 
     assertThat(items.getTableName()).isEqualTo("tableName");
+    assertThat(items.getSchema()).isEqualTo("schema");
     assertThat(items.getColumnsToDropNonNullability())
         .containsExactlyInAnyOrder(expectedColumnsToDropNonNullability);
     assertThat(items.getColumnsToAdd()).containsExactlyInAnyOrder(expectedColumnsToAdd);

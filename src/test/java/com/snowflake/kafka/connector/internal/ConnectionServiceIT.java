@@ -1,6 +1,7 @@
 package com.snowflake.kafka.connector.internal;
 
 import static com.snowflake.kafka.connector.SnowflakeSinkConnectorConfig.INGESTION_METHOD_OPT;
+import static com.snowflake.kafka.connector.Utils.SF_SCHEMA;
 import static com.snowflake.kafka.connector.internal.SnowflakeConnectionServiceV1.USER_AGENT_SUFFIX_FORMAT;
 import static com.snowflake.kafka.connector.internal.TestUtils.TEST_CONNECTOR_NAME;
 import static com.snowflake.kafka.connector.internal.streaming.ChannelMigrationResponseCode.OFFSET_MIGRATION_SOURCE_CHANNEL_DOES_NOT_EXIST;
@@ -437,6 +438,7 @@ public class ConnectionServiceIT {
   @Test
   public void testStreamingChannelOffsetMigration() {
     Map<String, String> testConfig = TestUtils.getConfForStreaming();
+    String testSchema = testConfig.get(SF_SCHEMA);
     SnowflakeConnectionService conn =
         SnowflakeConnectionServiceFactory.builder().setProperties(testConfig).build();
     conn.createTable(tableName);
@@ -449,7 +451,7 @@ public class ConnectionServiceIT {
     // ### TEST 1 - Both channels doesnt exist
     ChannelMigrateOffsetTokenResponseDTO channelMigrateOffsetTokenResponseDTO =
         conn.migrateStreamingChannelOffsetToken(
-            tableName, sourceChannelName, destinationChannelName);
+            tableName, sourceChannelName, destinationChannelName, testSchema);
     Assertions.assertTrue(
         isChannelMigrationResponseSuccessful(channelMigrateOffsetTokenResponseDTO));
     Assertions.assertEquals(
@@ -460,7 +462,7 @@ public class ConnectionServiceIT {
       // ### TEST 2 - Table doesnt exist
       channelMigrateOffsetTokenResponseDTO =
           conn.migrateStreamingChannelOffsetToken(
-              tableName + "_Table_DOESNT_EXIST", sourceChannelName, destinationChannelName);
+              tableName + "_Table_DOESNT_EXIST", sourceChannelName, destinationChannelName, testSchema);
     } catch (SnowflakeConnectionServiceV1.OffsetTokenMigrationRetryableException ex) {
       assert ex.getMessage()
           .contains(
@@ -497,7 +499,7 @@ public class ConnectionServiceIT {
           () -> service.getOffset(new TopicPartition(tableName, 0)) == noOfRecords, 5, 5);
       channelMigrateOffsetTokenResponseDTO =
           conn.migrateStreamingChannelOffsetToken(
-              tableName, sourceChannelName, destinationChannelName);
+              tableName, sourceChannelName, destinationChannelName, testSchema);
       Assertions.assertTrue(
           isChannelMigrationResponseSuccessful(channelMigrateOffsetTokenResponseDTO));
       Assertions.assertEquals(
@@ -538,7 +540,7 @@ public class ConnectionServiceIT {
       TestUtils.assertWithRetry(
           () -> newChannelFormatV2.getOffsetSafeToCommitToKafka() == (noOfRecords * 2), 5, 5);
 
-      conn.migrateStreamingChannelOffsetToken(tableName, sourceChannelName, destinationChannelName);
+      conn.migrateStreamingChannelOffsetToken(tableName, sourceChannelName, destinationChannelName, testSchema);
       TestUtils.assertWithRetry(
           () -> service.getOffset(new TopicPartition(tableName, 0)) == (noOfRecords * 2), 5, 5);
     } catch (Exception e) {
