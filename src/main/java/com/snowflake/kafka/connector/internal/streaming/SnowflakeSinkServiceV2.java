@@ -222,7 +222,7 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
         .forEach(topic -> perTopicActionsOnStartPartitions(topic, topic2Table));
     partitions.forEach(
         tp -> {
-          String tableName = Utils.tableName(tp.topic(), topic2Table);
+          String tableName = topicMapping.getTable(tp);
           String schema = topicMapping.getSchema(tp);
           createStreamingChannelForTopicPartition(
               tableName, schema, tp, getHasSchemaEvolutionPermission(tableName, schema));
@@ -231,7 +231,7 @@ public class SnowflakeSinkServiceV2 implements SnowflakeSinkService {
 
 
   private void perTopicActionsOnStartPartitions(String topic, Map<String, String> topic2Table) {
-    String tableName = Utils.tableName(topic, topic2Table);
+    String tableName = topicMapping.getTable(topic);
     String schema = topicMapping.getSchema(topic);
     tableActionsOnStartPartition(tableName, schema);
   }
