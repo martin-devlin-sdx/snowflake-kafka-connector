@@ -1,5 +1,6 @@
 package com.snowflake.kafka.connector.internal.streaming;
 
+import com.snowflake.kafka.connector.SnowflakeSinkTask;
 import com.snowflake.kafka.connector.Utils;
 import com.snowflake.kafka.connector.config.TopicMapping;
 import com.snowflake.kafka.connector.dlq.InMemoryKafkaRecordErrorReporter;
@@ -92,7 +93,7 @@ public class StreamingSinkServiceBuilder {
       return true;
     }
     @Override
-    public void start(Map<String, String> connectorConfig) {
+    public void start(Map<String, String> connectorConfig, SnowflakeSinkTask task) {
     }
     @Override
     public Set<String> getAllSchemas() {

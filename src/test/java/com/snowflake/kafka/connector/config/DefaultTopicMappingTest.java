@@ -47,7 +47,7 @@ public class DefaultTopicMappingTest {
     @Test
     public void testDefaultSchemaMapping() {
         tm.validate(connectorConfig, config);
-        tm.start(connectorConfig);
+        tm.start(connectorConfig, null);
         assertNoErrors(config);
 
         // always use the same schema.
@@ -72,7 +72,7 @@ public class DefaultTopicMappingTest {
 
     @Test
     public void testGetAllSchemas(){
-        tm.start(connectorConfig);
+        tm.start(connectorConfig, null);
         assertThat(tm.getAllSchemas()).containsOnly("TestSchema");
     }
 }

@@ -53,7 +53,8 @@
         <skipUnitTests>${skipTests}</skipUnitTests>
         <skipIntegrationTests>${skipTests}</skipIntegrationTests>
 
-        <kafka.version>3.9.1</kafka.version>
+        <kafka.version>3.7.0</kafka.version> <!-- this is the version of kafka connect used by AWS MSK Connect -->
+        <!--<kafka.version>3.9.1</kafka.version>-->
         <awaitility.version>4.2.2</awaitility.version>
         <assertj-core.version>3.26.3</assertj-core.version>
         <confluent.version>7.9.2</confluent.version>
@@ -288,6 +289,19 @@
         </pluginManagement>
     </build>
     <dependencies>
+
+        <dependency>
+            <groupId>io.nats</groupId>
+            <artifactId>jnats</artifactId>
+            <version>2.25.2</version>
+            <exclusions>
+		    <exclusion>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcprov-lts8on</artifactId>
+		    </exclusion>
+             </exclusions>
+        </dependency>
+
         <!-- https://mvnrepository.com/artifact/org.bouncycastle/bcpkix-fips -->
         <dependency>
             <groupId>org.bouncycastle</groupId>

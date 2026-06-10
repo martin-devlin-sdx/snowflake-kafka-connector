@@ -102,6 +102,10 @@ public class Utils {
   // task id
   public static final String TASK_ID = "task_id";
 
+  public static final String ACTUAL_MAX_TASKS = "actual.max.tasks";
+  public static final String NATS_URL = "nats.url";
+  public static final String COMMIT_OFFSETS = "commit.offsets";
+
   // jvm proxy
   public static final String HTTP_USE_PROXY = "http.useProxy";
   public static final String HTTPS_PROXY_HOST = "https.proxyHost";
@@ -569,7 +573,13 @@ public class Utils {
     return GeneratedName.generated(result.toString());
   }
 
-  public static Map<String, String> parseTopicToTableMap(String input) {
+  public static Map<String, String> parseTopicToTableMap(String input){
+    return parseTopicToTableMap(input, SnowflakeSinkConnectorConfig.TOPICS_TABLES_MAP, "topic");
+  }
+  public static Map<String, String> parseSubjectToTableMap(String input){
+    return parseTopicToTableMap(input, SnowflakeSinkConnectorConfig.NATS_TABLES_MAP, "subject");
+  }
+  public static Map<String, String> parseTopicToTableMap(String input, String configName, String desc) {
     Map<String, String> topic2Table = new HashMap<>();
     boolean isInvalid = false;
     for (String str : input.split(",")) {
@@ -577,7 +587,7 @@ public class Utils {
 
       if (tt.length != 2 || tt[0].trim().isEmpty() || tt[1].trim().isEmpty()) {
         LOGGER.error(
-            "Invalid {} config format: {}", SnowflakeSinkConnectorConfig.TOPICS_TABLES_MAP, input);
+            "Invalid {} config format: {}", configName, input);
         return null;
       }
 
@@ -594,7 +604,7 @@ public class Utils {
       }
 
       if (topic2Table.containsKey(topic)) {
-        LOGGER.error("topic name {} is duplicated", topic);
+        LOGGER.error(desc + " name {} is duplicated", topic);
         isInvalid = true;
       }
 
@@ -602,7 +612,7 @@ public class Utils {
       for (String parsedTopic : topic2Table.keySet()) {
         if (parsedTopic.matches(topic) || topic.matches(parsedTopic)) {
           LOGGER.error(
-              "topic regexes cannot overlap. overlapping regexes: {}, {}", parsedTopic, topic);
+              desc + " regexes cannot overlap. overlapping regexes: {}, {}", parsedTopic, topic);
           isInvalid = true;
         }
       }
@@ -656,6 +666,7 @@ public class Utils {
     Map<String, ConfigValue> validateMap = validateConfigToMap(result);
     //
     for (String prop : requiredFields) {
+      System.out.println(prop);
       if (validateMap.get(prop).value() == null) {
         updateConfigErrorMessage(result, prop, errorMsg);
         isValidate = false;

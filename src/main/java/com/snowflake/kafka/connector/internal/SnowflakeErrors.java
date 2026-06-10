@@ -21,6 +21,8 @@ import com.snowflake.kafka.connector.SnowflakeSinkConnectorConfig;
 import com.snowflake.kafka.connector.Utils;
 import com.snowflake.kafka.connector.internal.telemetry.SnowflakeTelemetryService;
 
+import static com.snowflake.kafka.connector.SnowflakeSinkConnectorConfig.NATS_SUBJECT_PREFIX_TO_SCHEMA_MAP;
+
 public enum SnowflakeErrors {
 
   // connector configuration issues 0---
@@ -145,6 +147,7 @@ public enum SnowflakeErrors {
       "Iceberg table does not exist or is in invalid format",
       "Check Snowflake Kafka Connector docs for details"),
   ERROR_0033("0033", "Invalid topicPrefix2schema map", "Failed to parse topicPrefix2schema map"),
+  ERROR_0034("0034", "Invalid " + NATS_SUBJECT_PREFIX_TO_SCHEMA_MAP, "Failed to parse " + NATS_SUBJECT_PREFIX_TO_SCHEMA_MAP),
   // Snowflake connection issues 1---
   ERROR_1001(
       "1001",

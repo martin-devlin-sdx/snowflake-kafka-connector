@@ -37,6 +37,7 @@ import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.connect.connector.Task;
 import org.apache.kafka.connect.sink.SinkConnector;
 
+import static com.snowflake.kafka.connector.Utils.COMMIT_OFFSETS;
 import static com.snowflake.kafka.connector.Utils.TOPIC_MAPPING_PROVIDER_CLASS;
 
 /**
@@ -155,7 +156,7 @@ public class SnowflakeSinkConnector extends SinkConnector {
   /** @return Sink task class */
   @Override
   public Class<? extends Task> taskClass() {
-    return SnowflakeSinkTask.class;
+    return "false".equalsIgnoreCase(config.get(COMMIT_OFFSETS)) ? SnowflakeSinkTaskNoCommitOffsets.class : SnowflakeSinkTask.class;
   }
 
   /**
@@ -191,6 +192,7 @@ public class SnowflakeSinkConnector extends SinkConnector {
     for (int i = 0; i < maxTasks; i++) {
       Map<String, String> conf = new HashMap<>(config);
       conf.put(Utils.TASK_ID, i + "");
+      conf.put(Utils.ACTUAL_MAX_TASKS, String.valueOf(maxTasks)); // in AWS MSK the configured 'maxTasks' gets overrode based on the worker cluster size and instance size etc.
       taskConfigs.add(conf);
     }
     return taskConfigs;
@@ -215,7 +217,6 @@ public class SnowflakeSinkConnector extends SinkConnector {
     if (!topicMappingProvider.validate(connectorConfigs, result)){
       return result;
     }
-    topicMappingProvider.start(connectorConfigs);
 
     // Verify proxy config is valid
     Map<String, String> invalidProxyParams = Utils.validateProxySettings(connectorConfigs);

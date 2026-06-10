@@ -126,7 +126,7 @@ public class MultiSchemaTopicMappingTest {
 
     @Test
     public void testGetTopicPrefixToSchemaMap(){
-        tm.start(connectorConfig);
+        tm.start(connectorConfig, null);
         assertThat(tm.topicPrefix2Schema).hasSize(2).containsOnly(
                 entry("sdx.sei.hcd_test_stg.test_schemaa", "TEST_SCHEMA"),
                 entry("sdx.sei.hcd_test_stg.test_schemab", "TEST_SCHEMA2")
@@ -135,7 +135,7 @@ public class MultiSchemaTopicMappingTest {
 
     @Test
     public void testGetTable(){
-        tm.start(connectorConfig);
+        tm.start(connectorConfig, null);
         assertThat(tm.getTable("sdx.sei.hcd_test_stg.test_schemaA.kafka_events")).isEqualTo("KAFKA_EVENTS");
         assertThat(tm.getTable("sdx.sei.hcd_test_stg.test_schemaB.kafka_events")).isEqualTo("KAFKA_EVENTS2");
 
@@ -148,7 +148,7 @@ public class MultiSchemaTopicMappingTest {
 
     @Test
     public void testGetSchemaName(){
-        tm.start(connectorConfig);
+        tm.start(connectorConfig, null);
         TopicPartition topicPartition = new TopicPartition("sdx.sei.hcd_test_stg.test_schemaA.kafka_events", 0);
         TopicPartition topicPartition2 = new TopicPartition("sdx.sei.hcd_test_stg.test_schemaB.kafka_events", 0);
         assertThat( tm.getSchema(topicPartition) ).isEqualTo("TEST_SCHEMA");
@@ -160,7 +160,7 @@ public class MultiSchemaTopicMappingTest {
 
     @Test
     public void testGetAllSchemas(){
-        tm.start(connectorConfig);
+        tm.start(connectorConfig, null);
         assertThat(tm.getAllSchemas()).containsOnly("TEST_SCHEMA", "TEST_SCHEMA2");
     }
 

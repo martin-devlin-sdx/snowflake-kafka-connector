@@ -72,14 +72,14 @@ public class SnowflakeSinkTask extends SinkTask {
   // check connect-distributed.properties file used to start kafka connect
   private final int rebalancingSleepTime = 370000;
 
-  private SnowflakeSinkService sink = null;
+  private volatile SnowflakeSinkService sink = null;
   private Map<String, String> topic2table = null;
   private TopicMapping topicMapping;
 
   // snowflake JDBC connection provides methods to interact with user's
   // snowflake
   // account and execute queries
-  private SnowflakeConnectionService conn = null;
+  private volatile SnowflakeConnectionService conn = null;
 
   // tracks number of tasks the config wants to create
   private String taskConfigId = "-1";
@@ -138,7 +138,7 @@ public class SnowflakeSinkTask extends SinkTask {
     return Optional.ofNullable(getConnection());
   }
 
-  private SnowflakeSinkService getSink() {
+  public SnowflakeSinkService getSink() {
     try {
       waitFor(() -> sink != null && !sink.isClosed());
     } catch (Exception e) {
@@ -163,7 +163,7 @@ public class SnowflakeSinkTask extends SinkTask {
     // generate topic to table map
 //    this.topic2table = getTopicToTableMap(parsedConfig);
     this.topicMapping = SnowflakeSinkConnector.getTopicMappingProvider(parsedConfig);
-    this.topicMapping.start(parsedConfig);
+    this.topicMapping.start(parsedConfig, this);
     this.topic2table = topicMapping.getTopic2table();
 
     this.authorizationExceptionTracker.updateStateOnTaskStart(parsedConfig);
@@ -260,10 +260,10 @@ public class SnowflakeSinkTask extends SinkTask {
    */
   @Override
   public void stop() {
+    topicMapping.stop(this);
     if (this.sink != null) {
       this.sink.stop();
     }
-
     this.DYNAMIC_LOGGER.info(
         "task stopped, total task runtime: {} milliseconds",
         getDurationFromStartMs(this.taskStartTime));
@@ -326,6 +326,8 @@ public class SnowflakeSinkTask extends SinkTask {
 
     logWarningForPutAndPrecommit(
         startTime, Utils.formatString("called PUT with {} records", recordSize), false);
+
+    context.pause();
   }
 
   /**

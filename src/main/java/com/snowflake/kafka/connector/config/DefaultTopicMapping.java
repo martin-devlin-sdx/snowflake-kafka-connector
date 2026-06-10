@@ -1,6 +1,7 @@
 package com.snowflake.kafka.connector.config;
 
 import com.snowflake.kafka.connector.SnowflakeSinkConnectorConfig;
+import com.snowflake.kafka.connector.SnowflakeSinkTask;
 import com.snowflake.kafka.connector.Utils;
 import com.snowflake.kafka.connector.internal.KCLogger;
 import org.apache.kafka.common.config.Config;
@@ -36,10 +37,15 @@ public class DefaultTopicMapping implements TopicMapping {
         if (topic2Table == null){ // normally it will throw exception when its invalid but it does return null in one case..
             return false;
         }
+        init(connectorConfig); // 'schema' needs to get populated for the schema check during validation
         return true;
     }
 
-    public void start(Map<String, String> connectorConfig){
+    public void start(Map<String, String> connectorConfig, SnowflakeSinkTask task){
+        init(connectorConfig);
+    }
+
+    private void init(Map<String, String> connectorConfig) {
         schema = connectorConfig.get(Utils.SF_SCHEMA);
         topic2Table = Utils.parseTopicToTableMap(connectorConfig.get(SnowflakeSinkConnectorConfig.TOPICS_TABLES_MAP));
     }

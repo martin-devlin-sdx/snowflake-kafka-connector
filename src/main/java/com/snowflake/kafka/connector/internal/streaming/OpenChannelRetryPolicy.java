@@ -15,7 +15,7 @@ import net.snowflake.ingest.utils.SFException;
  * <p>This class provides a clean interface to execute channel opening operations with automatic
  * retry on HTTP 429 (rate limiting) errors from Snowflake streaming service.
  */
-class OpenChannelRetryPolicy {
+public class OpenChannelRetryPolicy {
 
   private static final KCLogger LOGGER = new KCLogger(OpenChannelRetryPolicy.class.getName());
 
@@ -44,7 +44,7 @@ class OpenChannelRetryPolicy {
    * @param channelName the channel name for logging purposes
    * @return the result of the channel opening operation
    */
-  static SnowflakeStreamingIngestChannel executeWithRetry(
+  public static SnowflakeStreamingIngestChannel executeWithRetry(
       CheckedSupplier<SnowflakeStreamingIngestChannel> channelOpenAction, String channelName) {
 
     RetryPolicy<SnowflakeStreamingIngestChannel> retryPolicy =

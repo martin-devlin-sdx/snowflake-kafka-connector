@@ -40,6 +40,10 @@ public class SnowflakeSinkConnectorConfig {
   public static final String TOPICS_TABLES_MAP = "snowflake.topic2table.map";
   public static final String TOPIC_PREFIX_TO_SCHEMA_MAP = "snowflake.topicPrefix2schema.map";
 
+  // NATS
+  public static final String NATS_TABLES_MAP = "nats.subject2table.map";
+  public static final String NATS_SUBJECT_PREFIX_TO_SCHEMA_MAP = "nats.subjectPrefix2schema.map";
+
   // For tombstone records
   public static final String BEHAVIOR_ON_NULL_VALUES_CONFIG = "behavior.on.null.values";
 

@@ -1,5 +1,6 @@
 package com.snowflake.kafka.connector.config;
 
+import com.snowflake.kafka.connector.SnowflakeSinkTask;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.Config;
 
@@ -22,9 +23,14 @@ public interface TopicMapping {
 
     /**
      * Initialize the TopicMapping. This must be invoked before any of the getters.
-     * @param connectorConfig
      */
-    void start(Map<String, String> connectorConfig);
+    void start(Map<String, String> connectorConfig, SnowflakeSinkTask task);
+
+    /**
+     * Stop the TopicMapping.
+     */
+    default void stop(SnowflakeSinkTask task) {
+    }
 
     /**
      * @return all schemas used by this configuration. This allows the connector to validate that all schemas exist upon startup.

@@ -428,7 +428,7 @@ public class DirectTopicPartitionChannel implements TopicPartitionChannel {
         record.headers());
   }
 
-  private void transformAndSend(SinkRecord kafkaSinkRecord) {
+  public void transformAndSend(SinkRecord kafkaSinkRecord) {
     try {
       Map<String, Object> transformedRecord = transformDataBeforeSending(kafkaSinkRecord);
       if (!transformedRecord.isEmpty()) {

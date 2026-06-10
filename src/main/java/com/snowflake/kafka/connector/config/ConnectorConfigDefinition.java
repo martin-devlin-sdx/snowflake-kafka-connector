@@ -1,6 +1,7 @@
 package com.snowflake.kafka.connector.config;
 
 import static com.snowflake.kafka.connector.SnowflakeSinkConnectorConfig.*;
+import static com.snowflake.kafka.connector.Utils.NATS_URL;
 
 import com.snowflake.kafka.connector.SnowflakeSinkConnectorConfig;
 import com.snowflake.kafka.connector.Utils;
@@ -501,17 +502,48 @@ public class ConnectorConfigDefinition {
             ConfigDef.Width.NONE,
             ENABLE_CHANNEL_OFFSET_TOKEN_VERIFICATION_FUNCTION_DISPLAY)
         .define(TOPIC_PREFIX_TO_SCHEMA_MAP,
+                ConfigDef.Type.STRING,
+                null,
+                new TopicToSchemaValidator(),
+                ConfigDef.Importance.LOW,
+                "Map of topic prefixes to schemas. (optional). Format : comma-separated tuples, e.g."
+                        + " <topic-1-prefix>:<schema-1>,<topic-2-prefix>:<schema-2>,... ",
+                CONNECTOR_CONFIG_DOC,
+                0,
+                ConfigDef.Width.NONE,
+                TOPIC_PREFIX_TO_SCHEMA_MAP)
+        .define(NATS_SUBJECT_PREFIX_TO_SCHEMA_MAP,
             ConfigDef.Type.STRING,
             null,
             new TopicToSchemaValidator(),
             ConfigDef.Importance.LOW,
-            "Map of topic prefixes to schemas. (optional). Format : comma-separated tuples, e.g."
-                    + " <topic-1-prefix>:<schema-1>,<topic-2-prefix>:<schema-2>,... ",
+            "Map of NATS subject prefixes to schemas. (optional). Format : comma-separated tuples, e.g."
+                    + " <subject-1-prefix>:<schema-1>,<subject-2-prefix>:<schema-2>,... ",
             CONNECTOR_CONFIG_DOC,
             0,
             ConfigDef.Width.NONE,
-            TOPIC_PREFIX_TO_SCHEMA_MAP);
-
-
+            NATS_SUBJECT_PREFIX_TO_SCHEMA_MAP)
+        .define(NATS_TABLES_MAP,
+            ConfigDef.Type.STRING,
+            null,
+            new TopicToSchemaValidator(),
+            ConfigDef.Importance.LOW,
+            "Map of NATS subscription names to schemas. The .> wildcard is supported. (optional). Format : comma-separated tuples, e.g."
+                    + " <subject-1>:<schema-1>,<subject-2>:<schema-2>,... ",
+            CONNECTOR_CONFIG_DOC,
+            0,
+            ConfigDef.Width.NONE,
+            NATS_TABLES_MAP)
+        .define(NATS_URL,
+            ConfigDef.Type.STRING,
+            "url for nats", // TODO fix validation logic here
+            ConfigDef.Importance.HIGH,
+            "URL of NATS server"
+           )
+        .define(Utils.COMMIT_OFFSETS,
+            ConfigDef.Type.STRING,
+            "true",
+            ConfigDef.Importance.HIGH,
+            "When using NATS commit offsets should be off. true or false. Defaults to true."); // TODO fix validation logic here
   }
 }

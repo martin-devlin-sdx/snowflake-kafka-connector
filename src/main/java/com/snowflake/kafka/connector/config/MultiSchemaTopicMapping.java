@@ -1,5 +1,6 @@
 package com.snowflake.kafka.connector.config;
 
+import com.snowflake.kafka.connector.SnowflakeSinkTask;
 import com.snowflake.kafka.connector.Utils;
 import com.snowflake.kafka.connector.internal.KCLogger;
 import com.snowflake.kafka.connector.internal.SnowflakeErrors;
@@ -27,7 +28,7 @@ public class MultiSchemaTopicMapping implements TopicMapping {
     @Override
     public boolean validate(Map<String, String> connectorConfig, Config config) {
         // check required fields aren't null
-        if (!Utils.isSingleFieldValid(config, SF_URL, SF_USER, SF_DATABASE, TOPIC_PREFIX_TO_SCHEMA_MAP)) {
+        if (!Utils.isSingleFieldValid(config, getRequiredFields())) {
             return false;
         }
         if (connectorConfig.containsKey(SF_SCHEMA)) {
@@ -54,16 +55,23 @@ public class MultiSchemaTopicMapping implements TopicMapping {
             return false;
         }
         // this might throw an exception if there is a missing schema definition for a topic defined inside topic2Table
-        Map<String, String> topicPrefix2Schema = parseTopicPrefixToSchemaMap(connectorConfig.get(TOPIC_PREFIX_TO_SCHEMA_MAP), topic2Table);
+        parseTopicPrefixToSchemaMap(connectorConfig.get(TOPIC_PREFIX_TO_SCHEMA_MAP), topic2Table);
 
-        // Note that this 'validate' method is invoked only once when the connector starts up. Then 'start' is invoked once
-        // per task thread (i.e. per connector SnowflakeSinkTask object). That's why we don't instantiate the class members here.
-        // So the maps actually get parsed multiple times - once at the start, and once for each additional worker thread.
+        init(connectorConfig); // need to setup 'topicPrefix2Schema' to make getAllSchemas() work during validation
         return true;
     }
 
+    protected String[] getRequiredFields(){
+        return new String[]{SF_URL, SF_USER, SF_DATABASE, TOPIC_PREFIX_TO_SCHEMA_MAP};
+    }
+
+
     @Override
-    public void start(Map<String, String> connectorConfig) {
+    public void start(Map<String, String> connectorConfig, SnowflakeSinkTask task) {
+        init(connectorConfig);
+    }
+
+    private void init(Map<String, String> connectorConfig) {
         topic2Table = Utils.parseTopicToTableMap(connectorConfig.get(TOPICS_TABLES_MAP));
         topicPrefix2Schema = parseTopicPrefixToSchemaMap(connectorConfig.get(TOPIC_PREFIX_TO_SCHEMA_MAP), topic2Table);
     }
@@ -89,8 +97,11 @@ public class MultiSchemaTopicMapping implements TopicMapping {
     }
 
     private static Map<String, String> parseTopicPrefixToSchemaMap(String input, Map<String, String> topic2Table) {
+       return parseTopicPrefixToSchemaMap(input, topic2Table, TOPIC_PREFIX_TO_SCHEMA_MAP, SnowflakeErrors.ERROR_0033) ;
+    }
+    public static Map<String, String> parseTopicPrefixToSchemaMap(String input, Map<String, String> topic2Table, String configName, SnowflakeErrors invalidErrorCode) {
         if (input == null || input.trim().isEmpty()) {
-            throw SnowflakeErrors.ERROR_0033.getException();
+            throw invalidErrorCode.getException();
         }
         Map<String, String> topicPrefixToSchemaMap = new HashMap<>();
         boolean isInvalid = false;
@@ -98,7 +109,7 @@ public class MultiSchemaTopicMapping implements TopicMapping {
             String[] parts = str.split(":");
 
             if (parts.length != 2 || parts[0].trim().isEmpty() || parts[1].trim().isEmpty()) {
-                LOGGER.error("Invalid {} config format: {}", TOPIC_PREFIX_TO_SCHEMA_MAP, input);
+                LOGGER.error("Invalid {} config format: {}", configName, input);
                 return null;
             }
 
@@ -107,14 +118,14 @@ public class MultiSchemaTopicMapping implements TopicMapping {
             // TODO validate more - what is are the schema name constraints?
 
             if (topicPrefixToSchemaMap.containsKey(topicPrefix)) {
-                LOGGER.error("topic prefix {} is duplicated in {}", topicPrefix, TOPIC_PREFIX_TO_SCHEMA_MAP);
+                LOGGER.error("topic prefix {} is duplicated in {}", topicPrefix, configName);
                 isInvalid = true;
             }
 
             // check that prefixes don't overlap
             for (String parsedSchemaPrefix : topicPrefixToSchemaMap.keySet()) {
                 if (parsedSchemaPrefix.startsWith(topicPrefix) || topicPrefix.startsWith(parsedSchemaPrefix)) {
-                    LOGGER.error("topic prefix cannot overlap: {}, {} in {}", parsedSchemaPrefix, topicPrefix, TOPIC_PREFIX_TO_SCHEMA_MAP);
+                    LOGGER.error("topic prefix cannot overlap: {}, {} in {}", parsedSchemaPrefix, topicPrefix, configName);
                     isInvalid = true;
                 }
             }
@@ -126,12 +137,12 @@ public class MultiSchemaTopicMapping implements TopicMapping {
                 String schema = getSchemaForTopicFromSchemaMap(topic, topicPrefixToSchemaMap);
                 if (schema == null) {
                     isInvalid = true;
-                    LOGGER.error("missing schema for topic: {} in {}", topic, TOPIC_PREFIX_TO_SCHEMA_MAP);
+                    LOGGER.error("missing schema for topic: {} in {}", topic, configName);
                 }
             }
         }
         if (isInvalid) {
-            throw SnowflakeErrors.ERROR_0033.getException();
+            throw invalidErrorCode.getException();
         }
         return topicPrefixToSchemaMap;
     }
@@ -141,7 +152,7 @@ public class MultiSchemaTopicMapping implements TopicMapping {
      * @param topicPrefixToSchemaMap pre: must not be null
      * @return schema for this topic
      */
-    private static String getSchemaForTopicFromSchemaMap(String topic, Map<String, String> topicPrefixToSchemaMap) {
+    public static String getSchemaForTopicFromSchemaMap(String topic, Map<String, String> topicPrefixToSchemaMap) {
         topic = topic.toLowerCase();
         // first look for an exact match
         String schema = topicPrefixToSchemaMap.get(topic);
